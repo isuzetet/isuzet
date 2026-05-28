@@ -1,0 +1,150 @@
+import { prisma, generateId } from '@ruit/shared-db';
+import { getCacheWithTtl, setCache, invalidateCache } from '@ruit/shared-utils';
+
+export type CorridorSnapshot = {
+  corridor_id: string;
+  snapshot_at: Date;
+  active_trucks: number;
+  active_loads: number;
+  load_to_truck_ratio: number | null;
+  demand_fill_rate: number | null;
+  payment_delay_rate: number | null;
+  backhaul_pct: number | null;
+  avg_margin_etb: number | null;
+};
+
+export async function getDensityScore(corridorId: string): Promise<number> {
+  // Raw SQL because corridor_snapshots is TimescaleDB
+  const snaps = await prisma.$queryRaw<CorridorSnapshot[]>`
+    SELECT * FROM corridor_snapshots
+    WHERE corridor_id = ${corridorId}
+    ORDER BY snapshot_at DESC LIMIT 1
+  `;
+  const snap = snaps[0] ?? null;
+
+  if (!snap) return 0.5;
+
+  const ltrRaw = Number(snap.load_to_truck_ratio ?? 1.0);
+  const ltrScore =
+    ltrRaw < 0.5
+      ? (ltrRaw / 0.5) * 0.5
+      : ltrRaw < 1.5
+        ? 0.5 + (ltrRaw - 0.5) * 0.5
+        : ltrRaw < 2.0
+          ? 1.0
+          : Math.max(0, 1.0 - (ltrRaw - 2.0) * 0.2);
+
+  const fillScore = Number(snap.demand_fill_rate ?? 75) / 100;
+  const payScore = 1 - Number(snap.payment_delay_rate ?? 10) / 100;
+  const bkhlScore = Number(snap.backhaul_pct ?? 20) / 100;
+
+  const score =
+    ltrScore * 0.35 + fillScore * 0.3 + payScore * 0.2 + bkhlScore * 0.15;
+  const final = Math.min(1, Math.max(0, score));
+
+  // Update corridors.density_index
+  await prisma.corridor.update({
+    where: { id: corridorId },
+    data: { density_index: final },
+  });
+
+  return final;
+}
+
+export async function isStrategicCorridor(corridorId: string): Promise<boolean> {
+  const c = await prisma.corridor.findUnique({
+    where: { id: corridorId },
+  });
+  if (!c) return false;
+  return (
+    c.siu_invested > 0 ||
+    (Number(c.density_index) < 0.35 && c.expansion_eligible === true)
+  );
+}
+
+export async function getCorridorMarginStats(corridorId: string): Promise<{
+  avg: number;
+  stddev: number;
+  count: number;
+}> {
+  const result = await prisma.$queryRaw<
+    Array<{
+      avg_margin: number;
+      stddev_margin: number;
+      count: bigint;
+    }>
+  >`
+    SELECT AVG(avg_margin_etb)::float as avg_margin,
+           STDDEV(avg_margin_etb)::float as stddev_margin,
+           COUNT(*)::bigint as count
+    FROM corridor_snapshots
+    WHERE corridor_id = ${corridorId}
+    AND snapshot_at > NOW() - INTERVAL '30 days'
+  `;
+  const row = result[0];
+  return {
+    avg: row?.avg_margin ?? 0,
+    stddev: row?.stddev_margin ?? 0,
+    count: Number(row?.count ?? 0),
+  };
+}
+
+export async function takeCorridorSnapshot(corridorId: string): Promise<void> {
+  const [activeLoads, activeTrucks] = await Promise.all([
+    prisma.load.count({
+      where: {
+        corridor_id: corridorId,
+        status: { in: ['OPEN', 'MATCHED', 'IN_TRANSIT'] },
+      },
+    }),
+    prisma.assignment.count({
+      where: {
+        load: { corridor_id: corridorId },
+        status: { in: ['ACTIVE', 'ACCEPTED'] },
+      },
+    }),
+  ]);
+
+  const ratio = activeTrucks > 0 ? activeLoads / activeTrucks : 0;
+
+  // Insert into TimescaleDB via raw SQL
+  await prisma.$executeRaw`
+    INSERT INTO corridor_snapshots (
+      corridor_id, snapshot_at, active_trucks, active_loads,
+      load_to_truck_ratio, margin_snapshot_count
+    ) VALUES (
+      ${corridorId}, NOW(), ${activeTrucks}, ${activeLoads},
+      ${ratio}, 0
+    )
+  `;
+
+  // Emit event
+  await prisma.event.create({
+    data: {
+      id: generateId('evt'),
+      event_type: 'CORRIDOR_HEALTH_UPDATED',
+      aggregate_id: corridorId,
+      aggregate_type: 'CORRIDOR',
+      actor_id: 'SYSTEM',
+      actor_role: 'SYSTEM',
+      strategy_version_id: await getActiveStrategyId(),
+      payload: {
+        active_loads: activeLoads,
+        active_trucks: activeTrucks,
+        ratio,
+      },
+      metadata: {
+        source: 'SCHEDULED_JOB',
+        is_manual_override: false,
+      },
+    },
+  });
+}
+
+// Helper — get active strategy id
+async function getActiveStrategyId(): Promise<string> {
+  const sv = await prisma.strategyVersion.findFirst({
+    where: { is_active: true, scope: 'GLOBAL' },
+  });
+  return sv?.id ?? 'sv_phase1_growth';
+}

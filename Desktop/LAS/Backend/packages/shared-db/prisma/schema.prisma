@@ -1,0 +1,2812 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                           String        @id @db.VarChar(26)
+  phone                        String        @unique
+  phoneBackup                  String?       @map("phone_backup")
+  email                        String?
+  fullName                     String        @map("full_name")
+  fullNameAmharic              String?       @map("full_name_amharic")
+  role                         String
+  status                       String        @default("PENDING_KYC")
+  kycTier                      Int           @default(0) @map("kyc_tier")
+  preferredLanguage            String        @default("am") @map("preferred_language")
+  notificationChannel          String        @default("SMS") @map("notification_channel")
+  lastLoginAt                  DateTime?     @map("last_login_at")
+  lastLoginIp                  String?       @map("last_login_ip")
+  deviceIdPrimary              String?       @map("device_id_primary")
+  deviceIdSecondary            String?       @map("device_id_secondary")
+  linkedAccountIds             String[]      @default([]) @map("linked_account_ids")
+  accountType                  String        @default("PERSONAL") @map("account_type")
+  referralCode                 String?       @unique @map("referral_code")
+  referredByCode               String?       @map("referred_by_code")
+  isOwnerOperator              Boolean       @default(false) @map("is_owner_operator")
+  simNameMismatch              Boolean       @default(false) @map("sim_name_mismatch")
+  deletedAt                    DateTime?     @map("deleted_at")
+  createdAt                    DateTime      @default(now()) @map("created_at")
+  updatedAt                    DateTime      @updatedAt @map("updated_at")
+  dataConsentGiven             Boolean       @default(false) @map("data_consent_given")
+  dataConsentGivenAt           DateTime?     @map("data_consent_given_at")
+  notificationThrottledUntil   DateTime?     @map("notification_throttled_until")
+  telegramHandle               String?       @map("telegram_handle")
+  telegramId                   String?       @unique @map("telegram_id")
+  telegramLinkedAt             DateTime?     @map("telegram_linked_at")
+  telegramNotificationsEnabled Boolean       @default(false) @map("telegram_notifications_enabled")
+  fcmToken                     String?       @map("fcm_token")
+  preferredPaymentRail         String?
+  paymentPhone                 String?       @map("payment_phone")
+  // Values from PaymentRailType enum: TELEBIRR | CBE_BIRR | AMOLE | HELLOCASH | AWASH_WALLET | BANK_TRANSFER
+  // Null = user has not set a preference yet
+  agentClients                 AgentClient[] @relation("AgentToClients")
+  clientAgentRels              AgentClient[] @relation("ClientToAgents")
+  agentPostedLoads             Load[]        @relation("AgentLoadPosting")
+  driver                       Driver?
+  fleetOwner                   FleetOwner?
+  orderer                      Orderer?
+
+  @@map("users")
+}
+
+model FleetOwner {
+  id                         String      @id @db.VarChar(26)
+  userId                     String      @unique @map("user_id")
+  companyName                String?     @map("company_name")
+  companyNameAmharic         String?     @map("company_name_amharic")
+  tinNumber                  String?     @map("tin_number")
+  bankName                   String?     @map("bank_name")
+  bankAccountNumber          String?     @map("bank_account_number")
+  mobileMoneyNumber          String?     @map("mobile_money_number")
+  preferredPayoutMethod      String      @default("BANK") @map("preferred_payout_method")
+  trustScore                 Decimal     @default(50.00) @map("trust_score") @db.Decimal(5, 2)
+  trustTier                  Int         @default(0) @map("trust_tier")
+  payoutSpeed                String      @default("T0") @map("payout_speed")
+  creditLimitEtb             Decimal     @default(0) @map("credit_limit_etb") @db.Decimal(12, 2)
+  isCreditEligible           Boolean     @default(false) @map("is_credit_eligible")
+  regionAccess               String[]    @default([]) @map("region_access")
+  loadWeightTier             Int         @default(1) @map("load_weight_tier")
+  totalTripsCompleted        Int         @default(0) @map("total_trips_completed")
+  totalRevenueEtb            Decimal     @default(0) @map("total_revenue_etb") @db.Decimal(12, 2)
+  paymentReliabilityScore    Decimal     @default(50.00) @map("payment_reliability_score") @db.Decimal(5, 2)
+  fleetSize                  Int?        @map("fleet_size")
+  businessType               String?     @map("business_type")
+  yearsInBusiness            Int?        @map("years_in_business")
+  primaryCorridors           String[]    @map("primary_corridors")
+  reinvestmentRate           Decimal?    @map("reinvestment_rate") @db.Decimal(5, 2)
+  businessRegistrationNumber String?     @map("business_registration_number")
+  tradeLicenseExpiry         DateTime?   @map("trade_license_expiry")
+  cbeBankAccount             String?     @map("cbe_bank_account")
+  monthlyRevenueEstimate     Int?        @map("monthly_revenue_estimate")
+  kycTier                    Int         @default(0) @map("fleet_kyc_tier")
+  deletedAt                  DateTime?   @map("deleted_at")
+  createdAt                  DateTime    @default(now()) @map("created_at")
+  updatedAt                  DateTime    @updatedAt @map("updated_at")
+  isRestricted               Boolean     @default(false) @map("is_restricted")
+  expenses                   Expense[]
+  loans                      FleetLoan[]
+  user                       User        @relation(fields: [userId], references: [id])
+  trucks                     Truck[]
+
+  @@map("fleet_owners")
+}
+
+model Orderer {
+  id                         String         @id @db.VarChar(26)
+  userId                     String         @unique @map("user_id")
+  companyName                String?        @map("company_name")
+  companyNameAmharic         String?        @map("company_name_amharic")
+  tinNumber                  String?        @map("tin_number")
+  businessSector             String?        @map("business_sector")
+  bankName                   String?        @map("bank_name")
+  bankAccountNumber          String?        @map("bank_account_number")
+  mobileMoneyNumber          String?        @map("mobile_money_number")
+  preferredPaymentMethod     String         @default("ESCROW") @map("preferred_payment_method")
+  paymentTermsDays           Int            @default(0) @map("payment_terms_days")
+  creditScore                Decimal        @default(50.00) @map("credit_score") @db.Decimal(5, 2)
+  creditLimitEtb             Decimal        @default(0) @map("credit_limit_etb") @db.Decimal(12, 2)
+  isCreditEligible           Boolean        @default(false) @map("is_credit_eligible")
+  paymentReliabilityScore    Decimal        @default(50.00) @map("payment_reliability_score") @db.Decimal(5, 2)
+  avgLeadTimeDays            Decimal?       @map("avg_lead_time_days") @db.Decimal(4, 1)
+  priceSensitivityScore      Decimal?       @map("price_sensitivity_score") @db.Decimal(5, 2)
+  preferredTruckTypes        String[]       @default([]) @map("preferred_truck_types")
+  seasonalPattern            String?        @map("seasonal_pattern")
+  totalLoadsCreated          Int            @default(0) @map("total_loads_created")
+  totalSpendEtb              Decimal        @default(0) @map("total_spend_etb") @db.Decimal(12, 2)
+  businessRegistrationNumber String?        @map("business_registration_number")
+  industrySector             String?        @map("industry_sector")
+  monthlyFreightSpend        Int?           @map("monthly_freight_spend")
+  creditLineApproved         Boolean        @default(false) @map("credit_line_approved")
+  creditLineLimitEtb         Int            @default(0) @map("credit_line_limit_etb")
+  preferredTruckBodyTypes    String[]       @default([]) @map("preferred_truck_body_types")
+  apiAccessEnabled           Boolean        @default(false) @map("api_access_enabled")
+  webhookUrl                 String?        @map("webhook_url")
+  kycTier                    Int            @default(0) @map("orderer_kyc_tier")
+  deletedAt                  DateTime?      @map("deleted_at")
+  createdAt                  DateTime       @default(now()) @map("created_at")
+  updatedAt                  DateTime       @updatedAt @map("updated_at")
+  apiKeys                    ApiKey[]
+  loadStops                  LoadStop[]
+  templates                  LoadTemplate[]
+  loads                      Load[]
+  user                       User           @relation(fields: [userId], references: [id])
+
+  @@map("orderers")
+}
+
+model Driver {
+  id                       String    @id @db.VarChar(26)
+  userId                   String    @unique @map("user_id")
+  fleetOwnerId             String?   @map("fleet_owner_id")
+  licenseNumber            String    @map("license_number")
+  licenseClass             String?   @map("license_class")
+  licenseExpiry            DateTime? @map("license_expiry")
+  trustScore               Decimal   @default(50.00) @map("trust_score") @db.Decimal(5, 2)
+  trustTier                Int       @default(0) @map("trust_tier")
+  status                   String    @default("ACTIVE")
+  onTimeRate               Decimal   @default(0) @map("on_time_rate") @db.Decimal(5, 2)
+  disputeCount30d          Int       @default(0) @map("dispute_count_30d")
+  disputeCount90d          Int       @default(0) @map("dispute_count_90d")
+  deviationRate            Decimal   @default(0) @map("deviation_rate") @db.Decimal(5, 2)
+  cancellationRate         Decimal   @default(0) @map("cancellation_rate") @db.Decimal(5, 2)
+  incidentCount90d         Int       @default(0) @map("incident_count_90d")
+  anomalyFlagCount         Int       @default(0) @map("anomaly_flag_count")
+  totalTripsCompleted      Int       @default(0) @map("total_trips_completed")
+  consecutiveCleanTrips    Int       @default(0) @map("consecutive_clean_trips")
+  codDiscrepancyCount      Int       @default(0) @map("cod_discrepancy_count")
+  codTripsTotal            Int       @default(0) @map("cod_trips_total")
+  homeCity                 String?   @map("home_city")
+  preferredCorridors       String[]  @map("preferred_corridors")
+  routeFamiliarityScore    Json?     @map("route_familiarity_score")
+  avgResponseTimeMin       Decimal?  @map("avg_response_time_min") @db.Decimal(4, 1)
+  typicalRestDurationH     Decimal?  @map("typical_rest_duration_h") @db.Decimal(3, 1)
+  preferredAssignmentHour  Int?      @map("preferred_assignment_hour")
+  homeBaseCityId           String?   @map("home_base_city_id")
+  preferredCorridorIds     String[]  @default([]) @map("preferred_corridor_ids")
+  availabilityStatus       String    @default("AVAILABLE") @map("availability_status")
+  licenseCategory          String?   @map("license_category")
+  emergencyContactName     String?   @map("emergency_contact_name")
+  emergencyContactPhone    String?   @map("emergency_contact_phone")
+  telebirrNumber           String?   @map("telebirr_number")
+  deletedAt                DateTime? @map("deleted_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  averageRating            Decimal   @default(5.0) @map("average_rating") @db.Decimal(3, 2)
+  currentLat               Decimal?  @map("current_lat") @db.Decimal(10, 6)
+  currentLng               Decimal?  @map("current_lng") @db.Decimal(10, 6)
+  currentZoneId            String?   @map("current_zone_id")
+  drivingHoursToday        Decimal   @default(0) @map("driving_hours_today") @db.Decimal(4, 1)
+  hasSmartphone            Boolean   @default(true) @map("has_smartphone")
+  homeZoneId               String?   @map("home_zone_id")
+  languagesSpoken          String[]  @default([]) @map("languages_spoken")
+  lastDrivingHoursReset    DateTime? @map("last_driving_hours_reset")
+  onTimeDeliveryRate       Decimal   @default(1.0) @map("on_time_delivery_rate") @db.Decimal(3, 2)
+  preferredZoneIds         String[]  @default([]) @map("preferred_zone_ids")
+  shiftEndsAt              DateTime? @map("shift_ends_at")
+  shiftStartsAt            DateTime? @map("shift_starts_at")
+  totalKmDriven            Int       @default(0) @map("total_km_driven")
+  totalTripsCompletedCount Int       @default(0) @map("total_trips_completed_count")
+  deviceFingerprint        String?   @map("device_fingerprint")
+  faceVerificationHash     String?   @map("face_verification_hash")
+  faceVerifiedAt           DateTime? @map("face_verified_at")
+  homeZoneRegistered       String?   @map("home_zone_registered")
+  multiSimPaymentPhone     String?   @map("multi_sim_payment_phone")
+  multiSimPrimaryPhone     String?   @map("multi_sim_primary_phone")
+  currentZone              Zone?     @relation("DriverCurrentZone", fields: [currentZoneId], references: [id])
+  homeZone                 Zone?     @relation("DriverHomeZone", fields: [homeZoneId], references: [id])
+  user                     User      @relation(fields: [userId], references: [id])
+  trips                    Trip[]
+
+  @@map("drivers")
+}
+
+model Truck {
+  id                              String             @id @db.VarChar(26)
+  plateNumber                     String             @unique @map("plate_number")
+  fleetOwnerId                    String?            @map("fleet_owner_id")
+  currentDriverId                 String?            @map("current_driver_id")
+  make                            String?
+  model                           String?
+  year                            Int?
+  truckType                       String             @map("truck_type")
+  capacityKg                      Int                @map("capacity_kg")
+  capacityCbm                     Decimal?           @map("capacity_cbm") @db.Decimal(8, 2)
+  axleCount                       Int?               @map("axle_count")
+  status                          String             @default("ACTIVE")
+  insurancePolicyNumber           String?            @map("insurance_policy_number")
+  insuranceExpiry                 DateTime?          @map("insurance_expiry")
+  annualInspectionExpiry          DateTime?          @map("annual_inspection_expiry")
+  roadWorthinessExpiry            DateTime?          @map("road_worthiness_expiry")
+  fuelConsumptionLp100km          Decimal?           @map("fuel_consumption_lp100km") @db.Decimal(4, 1)
+  fuelTankCapacityL               Int?               @map("fuel_tank_capacity_l")
+  odometerKm                      Int                @default(0) @map("odometer_km")
+  engineHours                     Int                @default(0) @map("engine_hours")
+  lastMaintenanceKm               Int?               @map("last_maintenance_km")
+  lastMaintenanceAt               DateTime?          @map("last_maintenance_at")
+  hasBankLoan                     Boolean            @default(false) @map("has_bank_loan")
+  loanBankName                    String?            @map("loan_bank_name")
+  coOwnerUserId                   String?            @map("co_owner_user_id")
+  coOwnerSharePct                 Decimal?           @map("co_owner_share_pct") @db.Decimal(5, 2)
+  libreNumber                     String?            @map("libre_number")
+  chassisNumber                   String?            @map("chassis_number")
+  engineNumber                    String?            @map("engine_number")
+  manufacturingYear               Int?               @map("manufacturing_year")
+  bodyType                        String             @default("FLATBED") @map("body_type")
+  payloadQuintals                 Decimal?           @map("payload_quintals") @db.Decimal(10, 2)
+  insuranceCompany                String?            @map("insurance_company")
+  insuranceType                   String             @default("THIRD_PARTY") @map("insurance_type")
+  inspectionNumber                String?            @map("inspection_number")
+  inspectionExpiry                DateTime?          @map("inspection_expiry")
+  odometer                        Int                @default(0) @map("odometer_reading")
+  lastServiceDate                 DateTime?          @map("last_service_date")
+  nextServiceDate                 DateTime?          @map("next_service_date")
+  kycTier                         Int                @default(0) @map("truck_kyc_tier")
+  isEligibleForLoads              Boolean            @default(false) @map("is_eligible_for_loads")
+  deletedAt                       DateTime?          @map("deleted_at")
+  createdAt                       DateTime           @default(now()) @map("created_at")
+  updatedAt                       DateTime           @updatedAt @map("updated_at")
+  availableAtLat                  Decimal?           @map("available_at_lat") @db.Decimal(10, 6)
+  availableAtLng                  Decimal?           @map("available_at_lng") @db.Decimal(10, 6)
+  availableFromAt                 DateTime?          @map("available_from_at")
+  averageFuelConsumptionLper100km Decimal?           @map("average_fuel_consumption_lper100km") @db.Decimal(5, 2)
+  currentLat                      Decimal?           @map("current_lat") @db.Decimal(10, 6)
+  currentLng                      Decimal?           @map("current_lng") @db.Decimal(10, 6)
+  currentZoneId                   String?            @map("current_zone_id")
+  grossVehicleWeightKg            Int?               @map("gross_vehicle_weight_kg")
+  homeZoneId                      String?            @map("home_zone_id")
+  lastKnownOdometerKm             Int?               @map("last_known_odometer_km")
+  legalPayloadKg                  Int?               @map("legal_payload_kg")
+  manufactureYear                 Int?               @map("manufacture_year")
+  nextServiceDueKm                Int?               @map("next_service_due_km")
+  preferredCorridorIds            String[]           @default([]) @map("preferred_corridor_ids")
+  truckBrand                      TruckBrand         @default(OTHER) @map("truck_brand")
+  truckModelDetail                String?            @map("truck_model_detail")
+  fuelType                        FuelType           @default(DIESEL) @map("fuel_type")
+  isPrivateFleet                  Boolean            @default(false) @map("is_private_fleet")
+  marketplaceAvailable            Boolean            @default(true) @map("marketplace_available")
+  privateFleetOwnerId             String?            @map("private_fleet_owner_id") @db.VarChar(26)
+  trips                           Trip[]
+  maintenance                     TruckMaintenance[]
+  currentZone                     Zone?              @relation("TruckCurrentZone", fields: [currentZoneId], references: [id])
+  fleetOwner                      FleetOwner?        @relation(fields: [fleetOwnerId], references: [id])
+  homeZone                        Zone?              @relation("TruckHomeZone", fields: [homeZoneId], references: [id])
+
+  @@map("trucks")
+}
+
+model KycDocument {
+  id              String    @id @db.VarChar(26)
+  entityId        String    @map("entity_id")
+  entityType      String    @map("entity_type")
+  docType         String    @map("doc_type")
+  s3Key           String    @map("s3_key")
+  s3Bucket        String    @map("s3_bucket")
+  fileSizeBytes   Int?      @map("file_size_bytes")
+  status          String    @default("PENDING")
+  expiryDate      DateTime? @map("expiry_date")
+  rejectionReason String?   @map("rejection_reason")
+  reviewedBy      String?   @map("reviewed_by")
+  reviewedAt      DateTime? @map("reviewed_at")
+  deletedAt       DateTime? @map("deleted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@map("kyc_documents")
+}
+
+model Corridor {
+  id                       String       @id @db.VarChar(26)
+  name                     String
+  nameAmharic              String?      @map("name_amharic")
+  originCity               String       @map("origin_city")
+  destinationCity          String       @map("destination_city")
+  distanceKm               Int          @map("distance_km")
+  region                   String
+  status                   String       @default("ACTIVE")
+  healthScore              Decimal      @default(50) @map("health_score") @db.Decimal(5, 2)
+  densityIndex             Decimal      @default(0) @map("density_index") @db.Decimal(5, 2)
+  expansionEligible        Boolean      @default(false) @map("expansion_eligible")
+  loadToTruckRatio         Decimal      @default(0) @map("load_to_truck_ratio") @db.Decimal(5, 2)
+  backhaulPct              Decimal      @default(0) @map("backhaul_pct") @db.Decimal(5, 2)
+  siuInvested              Int          @default(0) @map("siu_invested")
+  siuRoi                   Decimal      @default(0) @map("siu_roi") @db.Decimal(5, 2)
+  roadType                 String?      @map("road_type")
+  hasMountainPass          Boolean      @default(false) @map("has_mountain_pass")
+  floodRiskMonths          String[]     @map("flood_risk_months")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  averageTransitMinutes    Int?         @map("average_transit_minutes")
+  checkpointCount          Int          @default(0) @map("checkpoint_count")
+  corridorType             CorridorType @default(INTERCITY) @map("corridor_type")
+  destinationZoneId        String?      @map("destination_zone_id")
+  expectedCheckpointFeeEtb Int          @default(0) @map("expected_checkpoint_fee_etb")
+  isNightTimeRestricted    Boolean      @default(false) @map("is_night_time_restricted")
+  nightRestrictionReason   String?      @map("night_restriction_reason")
+  originZoneId             String?      @map("origin_zone_id")
+  peakHourMultiplier       Decimal      @default(1.0) @map("peak_hour_multiplier") @db.Decimal(3, 2)
+  roadConditionScore       Int          @default(100) @map("road_condition_score")
+  seasonalClosureMonths    Int[]        @default([]) @map("seasonal_closure_months")
+  destinationZone          Zone?        @relation("CorridorDestZone", fields: [destinationZoneId], references: [id])
+  originZone               Zone?        @relation("CorridorOriginZone", fields: [originZoneId], references: [id])
+
+  @@map("corridors")
+}
+
+model Load {
+  id                       String        @id @db.VarChar(26)
+  ordererId                String        @map("orderer_id")
+  agentId                  String?       @map("agent_id") @db.VarChar(26)
+  corridorId               String        @map("corridor_id")
+  originCity               String        @map("origin_city")
+  originAddress            String?       @map("origin_address")
+  originGeoLat             Decimal?      @map("origin_geo_lat") @db.Decimal(10, 6)
+  originGeoLng             Decimal?      @map("origin_geo_lng") @db.Decimal(10, 6)
+  destinationCity          String        @map("destination_city")
+  destinationAddress       String?       @map("destination_address")
+  destinationGeoLat        Decimal?      @map("destination_geo_lat") @db.Decimal(10, 6)
+  destinationGeoLng        Decimal?      @map("destination_geo_lng") @db.Decimal(10, 6)
+  isMultiStop              Boolean       @default(false) @map("is_multi_stop")
+  waypoints                Json?
+  cargoType                String        @map("cargo_type")
+  cargoDescription         String?       @map("cargo_description")
+  weightKg                 Int           @map("weight_kg")
+  volumeCbm                Decimal?      @map("volume_cbm") @db.Decimal(8, 2)
+  requiresReefer           Boolean       @default(false) @map("requires_reefer")
+  hazmatClass              String?       @map("hazmat_class")
+  specialInstructions      String?       @map("special_instructions")
+  pickupDate               DateTime      @map("pickup_date")
+  deliveryDeadline         DateTime      @map("delivery_deadline")
+  urgencyLevel             Int           @default(2) @map("urgency_level")
+  systemQuoteEtb           Decimal?      @map("system_quote_etb") @db.Decimal(12, 2)
+  finalRateEtb             Decimal?      @map("final_rate_etb") @db.Decimal(12, 2)
+  ruitCommissionEtb        Decimal?      @map("ruit_commission_etb") @db.Decimal(12, 2)
+  fleetPayoutEtb           Decimal?      @map("fleet_payout_etb") @db.Decimal(12, 2)
+  paymentModel             String        @default("ESCROW") @map("payment_model")
+  status                   String        @default("DRAFT")
+  strategyVersionId        String        @map("strategy_version_id")
+  ethiopianCalendarEvent   String?       @map("ethiopian_calendar_event")
+  weatherCondition         String?       @map("weather_condition")
+  bookingLeadTimeHours     Int?          @map("booking_lead_time_hours")
+  ordererRequestSource     String        @default("APP") @map("orderer_request_source")
+  loadType                 String        @default("SIMPLE") @map("load_type")
+  preferredTruckBodyType   String?       @map("preferred_truck_body_type")
+  requiresRefrigeration    Boolean       @default(false) @map("requires_refrigeration")
+  isHazardous              Boolean       @default(false) @map("is_hazardous")
+  insuranceRequired        Boolean       @default(false) @map("insurance_required")
+  idempotencyKey           String?       @unique @map("idempotency_key")
+  templateId               String?       @map("template_id")
+  totalStops               Int           @default(2) @map("total_stops")
+  fuelAdvanceAmount        Int           @default(0) @map("fuel_advance_amount")
+  fuelAdvanceApproved      Boolean       @default(false) @map("fuel_advance_approved")
+  deletedAt                DateTime?     @map("deleted_at")
+  createdAt                DateTime      @default(now()) @map("created_at")
+  updatedAt                DateTime      @updatedAt @map("updated_at")
+  currentLat               Decimal?      @map("current_lat") @db.Decimal(10, 6)
+  currentLng               Decimal?      @map("current_lng") @db.Decimal(10, 6)
+  lastLocationAt           DateTime?     @map("last_location_at")
+  lastPingSource           String?       @map("last_ping_source")
+  actualDeliveryAt         DateTime?     @map("actual_delivery_at")
+  actualPickupAt           DateTime?     @map("actual_pickup_at")
+  deliveryZoneId           String?       @map("delivery_zone_id")
+  expectedLoadingMinutes   Int?          @map("expected_loading_minutes")
+  expectedUnloadingMinutes Int?          @map("expected_unloading_minutes")
+  fastTrack                Boolean       @default(false) @map("fast_track")
+  isRecurring              Boolean       @default(false) @map("is_recurring")
+  overloadWarningIssued    Boolean       @default(false) @map("overload_warning_issued")
+  pickupZoneId             String?       @map("pickup_zone_id")
+  templateReferenceId      String?       @map("template_reference_id")
+  totalCheckpointFeesEtb   Int           @default(0) @map("total_checkpoint_fees_etb")
+  urgencyLevelEnum         String?       @map("urgency_level_enum")
+  directBookingId          String?       @map("direct_booking_id") @db.VarChar(26)
+  source                   String?       @default("MANUAL") @map("source")
+  harvestDeclaredAt        DateTime?     @map("harvest_declared_at")
+  isTimeCritical           Boolean       @default(false) @map("is_time_critical")
+  livestockAgeClass        String?       @map("livestock_age_class")
+  livestockDeliveredAlive  Int?          @map("livestock_delivered_alive")
+  livestockHeadCount       Int?          @map("livestock_head_count")
+  livestockSpecies         String?       @map("livestock_species")
+  paymentBasis             String?       @map("payment_basis")
+  timeCriticalEscalated    Boolean       @default(false) @map("time_critical_escalated")
+  vetCertificateUrl        String?       @map("vet_certificate_url")
+  insuranceAccepted        Boolean       @default(false) @map("insurance_accepted")
+  insuranceCoverageCents   Int?          @map("insurance_coverage_cents")
+  insurancePremiumCents    Int?          @map("insurance_premium_cents")
+  charterTruckSize         String?
+  pricingMode              String        @default("CONSOLIDATED")
+
+  // Dispatch loop tracking (Phase 8 feature)
+  currentOfferDriverId     String?       @db.VarChar(26) @map("current_offer_driver_id")
+  // Which driver currently has the active offer
+  offerSentAt              DateTime?     @map("offer_sent_at")
+  // When the current offer was sent — used for acceptance window enforcement
+  offerExpiresAt           DateTime?     @map("offer_expires_at")
+  // Calculated: offerSentAt + acceptance window minutes
+  offerRound               Int           @default(0) @map("offer_round")
+  // How many offer rounds have been attempted (resets on each new offer wave)
+  totalDeclines            Int           @default(0) @map("total_declines")
+  // Cumulative declines across all rounds
+  dispatchAttempts         Int           @default(0) @map("dispatch_attempts")
+  // How many times WDM has been run for this load
+
+  stops                    LoadStop[]
+  deliveryZone             Zone?         @relation("LoadDeliveryZone", fields: [deliveryZoneId], references: [id])
+  orderer                  Orderer       @relation(fields: [ordererId], references: [id])
+  agent                    User?         @relation("AgentLoadPosting", fields: [agentId], references: [id])
+  pickupZone               Zone?         @relation("LoadPickupZone", fields: [pickupZoneId], references: [id])
+  template                 LoadTemplate? @relation(fields: [templateId], references: [id])
+  trips                    Trip[]
+
+  @@map("loads")
+}
+
+model LoadNegotiation {
+  id                  String   @id @db.VarChar(26)
+  loadId              String   @map("load_id")
+  roundNumber         Int      @default(1) @map("round_number")
+  offeredBy           String   @map("offered_by")
+  offeredById         String?  @map("offered_by_id")
+  amountEtb           Decimal  @map("amount_etb") @db.Decimal(12, 2)
+  action              String
+  rejectionReasonCode String?  @map("rejection_reason_code")
+  rejectionNote       String?  @map("rejection_note")
+  voiceNoteS3Key      String?  @map("voice_note_s3_key")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@map("load_negotiations")
+}
+
+model Assignment {
+  id                   String    @id @db.VarChar(26)
+  loadId               String    @map("load_id")
+  truckId              String    @map("truck_id")
+  driverId             String    @map("driver_id")
+  fleetOwnerId         String    @map("fleet_owner_id")
+  status               String    @default("SUGGESTED")
+  suggestedAt          DateTime  @default(now()) @map("suggested_at")
+  acceptanceDeadline   DateTime  @map("acceptance_deadline")
+  acceptedAt           DateTime? @map("accepted_at")
+  rejectedAt           DateTime? @map("rejected_at")
+  rejectionReason      String?   @map("rejection_reason")
+  rejectionReasonCode  String?   @map("rejection_reason_code")
+  attemptNumber        Int       @default(1) @map("attempt_number")
+  optimizationScore    Decimal?  @map("optimization_score") @db.Decimal(5, 2)
+  decisionTraceId      String?   @map("decision_trace_id")
+  strategyVersionId    String    @map("strategy_version_id")
+  timeToAcceptMinutes  Decimal?  @map("time_to_accept_minutes") @db.Decimal(4, 1)
+  wasSuggestedBackhaul Boolean   @default(false) @map("was_suggested_backhaul")
+  deletedAt            DateTime? @map("deleted_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  @@map("assignments")
+}
+
+model Trip {
+  id                   String     @id @db.VarChar(26)
+  assignmentId         String     @unique @map("assignment_id")
+  loadId               String     @map("load_id")
+  driverId             String     @map("driver_id")
+  truckId              String     @map("truck_id")
+  fleetOwnerId         String     @map("fleet_owner_id")
+  ordererId            String     @map("orderer_id")
+  status               String     @default("PENDING")
+  scheduledPickup      DateTime   @map("scheduled_pickup")
+  actualPickupAt       DateTime?  @map("actual_pickup_at")
+  estimatedDeliveryAt  DateTime?  @map("estimated_delivery_at")
+  actualDeliveryAt     DateTime?  @map("actual_delivery_at")
+  deadlineAt           DateTime   @map("deadline_at")
+  plannedDistanceKm    Int?       @map("planned_distance_km")
+  actualDistanceKm     Decimal?   @map("actual_distance_km") @db.Decimal(8, 1)
+  totalIdleMinutes     Int        @default(0) @map("total_idle_minutes")
+  deviationDetected    Boolean    @default(false) @map("deviation_detected")
+  maxDeviationKm       Decimal?   @map("max_deviation_km") @db.Decimal(6, 1)
+  onTime               Boolean?   @map("on_time")
+  delayMinutes         Int?       @map("delay_minutes")
+  roadQualityRating    Int?       @map("road_quality_rating")
+  weatherDuringTrip    String?    @map("weather_during_trip")
+  fuelConsumedL        Decimal?   @map("fuel_consumed_l") @db.Decimal(6, 1)
+  loadingDurationMin   Int?       @map("loading_duration_min")
+  unloadingDurationMin Int?       @map("unloading_duration_min")
+  checkpointDelays     Json?      @map("checkpoint_delays")
+  borderWaitMinutes    Int?       @map("border_wait_minutes")
+  podS3Key             String?    @map("pod_s3_key")
+  podUploadedAt        DateTime?  @map("pod_uploaded_at")
+  podGeoLat            Decimal?   @map("pod_geo_lat") @db.Decimal(10, 6)
+  podGeoLng            Decimal?   @map("pod_geo_lng") @db.Decimal(10, 6)
+  recipientName        String?    @map("recipient_name")
+  recipientSignatureS3 String?    @map("recipient_signature_s3")
+  deletedAt            DateTime?  @map("deleted_at")
+  createdAt            DateTime   @default(now()) @map("created_at")
+  updatedAt            DateTime   @updatedAt @map("updated_at")
+  detentionStartedAt   DateTime?  @map("detention_started_at")
+  rerouteApprovedAt    DateTime?  @map("reroute_approved_at")
+  rerouteRequested     Boolean    @default(false) @map("reroute_requested")
+  incidents            Incident[]
+  stops                TripStop[]
+  driver               Driver     @relation(fields: [driverId], references: [id])
+  load                 Load       @relation(fields: [loadId], references: [id])
+  truck                Truck      @relation(fields: [truckId], references: [id])
+
+  @@map("trips")
+}
+
+model CommissionConfig {
+  id             String    @id @db.VarChar(26)
+  name           String
+  configType     String    @map("config_type")
+  flatRatePct    Decimal?  @map("flat_rate_pct") @db.Decimal(5, 2)
+  fixedAmountEtb Decimal?  @map("fixed_amount_etb") @db.Decimal(12, 2)
+  tiers          Json?
+  corridorId     String?   @map("corridor_id")
+  ordererId      String?   @map("orderer_id")
+  cargoType      String?   @map("cargo_type")
+  isActive       Boolean   @default(false) @map("is_active")
+  effectiveFrom  DateTime  @map("effective_from")
+  effectiveTo    DateTime? @map("effective_to")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("commission_configs")
+}
+
+model FinancialTransaction {
+  id                   String    @id @db.VarChar(26)
+  tripId               String?   @map("trip_id")
+  loadId               String?   @map("load_id")
+  ordererId            String    @map("orderer_id")
+  fleetOwnerId         String?   @map("fleet_owner_id")
+  agentUserId          String?   @map("agent_user_id") @db.VarChar(26)
+  txType               String    @map("tx_type")
+  amountEtb            Decimal   @map("amount_etb") @db.Decimal(12, 2)
+  direction            String
+  paymentModel         String    @map("payment_model")
+  status               String    @default("PENDING")
+  commissionConfigId   String?   @map("commission_config_id")
+  codHandler           String?   @map("cod_handler")
+  codCollectedByUserId String?   @map("cod_collected_by_user_id")
+  codCollectedAt       DateTime? @map("cod_collected_at")
+  codVerified          Boolean?  @map("cod_verified")
+  paymentMethod        String?   @map("payment_method")
+  externalRef          String?   @map("external_ref")
+  dueDate              DateTime? @map("due_date")
+  settledAt            DateTime? @map("settled_at")
+  daysToSettle         Int?      @map("days_to_settle")
+  createdAt            DateTime  @default(now()) @map("created_at")
+
+  @@unique([loadId, txType], name: "uq_financial_singleton", map: "uq_financial_singleton")
+  @@map("financial_transactions")
+}
+
+model ExposureCap {
+  id                  String   @id @db.VarChar(26)
+  scopeType           String   @map("scope_type")
+  scopeId             String?  @map("scope_id")
+  capEtb              Decimal  @map("cap_etb") @db.Decimal(12, 2)
+  currentExposureEtb  Decimal  @default(0) @map("current_exposure_etb") @db.Decimal(12, 2)
+  warningThresholdPct Decimal  @default(80) @map("warning_threshold_pct") @db.Decimal(5, 2)
+  isActive            Boolean  @default(true) @map("is_active")
+  setBy               String?  @map("set_by")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("exposure_caps")
+}
+
+model OrdererPaymentContract {
+  id            String    @id @db.VarChar(26)
+  ordererId     String    @map("orderer_id")
+  paymentModel  String    @map("payment_model")
+  codHandler    String?   @map("cod_handler")
+  advancePct    Decimal?  @map("advance_pct") @db.Decimal(5, 2)
+  creditDays    Int?      @map("credit_days")
+  escrowBypass  Boolean   @default(false) @map("escrow_bypass")
+  notes         String?
+  isActive      Boolean   @default(true) @map("is_active")
+  approvedBy    String?   @map("approved_by")
+  effectiveFrom DateTime  @default(now()) @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("orderer_payment_contracts")
+}
+
+model RateCardVersion {
+  id                  String    @id @db.VarChar(26)
+  corridorId          String    @map("corridor_id")
+  baseRatePerKm       Decimal   @map("base_rate_per_km") @db.Decimal(6, 2)
+  fuelIndexMultiplier Decimal   @map("fuel_index_multiplier") @db.Decimal(5, 2)
+  riskPremiumPct      Decimal   @map("risk_premium_pct") @db.Decimal(5, 2)
+  marginFloorEtb      Decimal   @map("margin_floor_etb") @db.Decimal(12, 2)
+  effectiveFrom       DateTime  @map("effective_from")
+  effectiveTo         DateTime? @map("effective_to")
+  reason              String?
+  setBy               String?   @map("set_by")
+  createdAt           DateTime  @default(now()) @map("created_at")
+
+  @@map("rate_card_versions")
+}
+
+model Event {
+  id                String   @id @db.VarChar(26)
+  eventType         String   @map("event_type")
+  aggregateId       String   @map("aggregate_id")
+  aggregateType     String   @map("aggregate_type")
+  actorId           String   @map("actor_id")
+  actorRole         String   @map("actor_role")
+  strategyVersionId String   @map("strategy_version_id")
+  corridorId        String?  @map("corridor_id")
+  payload           Json
+  metadata          Json?
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@index([aggregateId, aggregateType])
+  @@index([eventType, createdAt])
+  @@index([corridorId, createdAt])
+  @@map("events")
+}
+
+model PaymentRailConfig {
+  rail               String  @id @unique
+  displayName        String
+  slaTargetMinutes   Int     @default(30) @map("sla_target_minutes")
+  isActive           Boolean @default(true) @map("is_active")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("payment_rail_configs")
+}
+
+model StrategyVersion {
+  id                                String    @id @db.VarChar(26)
+  versionName                       String    @map("version_name")
+  optimizationMode                  String    @map("optimization_mode")
+  scope                             String    @default("GLOBAL")
+  weightSet                         Json      @map("weight_set")
+  thresholdSet                      Json      @map("threshold_set")
+  pricingParams                     Json      @map("pricing_params")
+  acceptanceWindowMinutes           Int       @default(15) @map("acceptance_window_minutes")
+  maxAssignmentAttempts             Int       @default(5) @map("max_assignment_attempts")
+  isActive                          Boolean   @default(false) @map("is_active")
+  abTestGroup                       String?   @map("ab_test_group")
+  abTrafficPct                      Int       @default(0) @map("ab_traffic_pct")
+  createdBy                         String?   @map("created_by")
+  activatedAt                       DateTime? @map("activated_at")
+  deprecatedAt                      DateTime? @map("deprecated_at")
+  createdAt                         DateTime  @default(now()) @map("created_at")
+  highDemandThreshold               Decimal   @default(1.5) @map("high_demand_threshold")
+  lowDemandThreshold                Decimal   @default(0.5) @map("low_demand_threshold")
+  demandSurchargeRate               Decimal   @default(0.15) @map("demand_surcharge_rate")
+  supplyDiscountRate                Decimal   @default(0.10) @map("supply_discount_rate")
+  maxDemandMultiplier               Decimal   @default(1.5) @map("max_demand_multiplier")
+  minDemandMultiplier               Decimal   @default(0.8) @map("min_demand_multiplier")
+  floorPricePerKmPerQuintal         Decimal   @default(0.5) @map("floor_price_per_km_per_quintal")
+  ceilingPricePerKmPerQuintal       Decimal   @default(5.0) @map("ceiling_price_per_km_per_quintal")
+  cancellationCompensationRatePerKm Decimal   @default(2.0) @map("cancellation_compensation_rate_per_km")
+  checkpointFeeReimbursementEnabled Boolean   @default(true) @map("checkpoint_fee_reimbursement_enabled")
+  seasonalPricingRules              Json      @default("{}") @map("seasonal_pricing_rules")
+  cancellationFeeOver100kmEtb       Int       @default(5000)
+  cancellationFeeUnder100kmEtb      Int       @default(2000)
+  cancellationFeeUnder20kmEtb       Int       @default(500)
+  cancellationFeeUnder50kmEtb       Int       @default(1000)
+  cargoClassMultipliers             Json      @default("{\"KHAT\": 1.4, \"GRAIN\": 1.0, \"HONEY\": 1.15, \"CEMENT\": 1.1, \"COFFEE\": 1.1, \"COTTON\": 1.0, \"HAZMAT\": 1.4, \"SESAME\": 1.0, \"GENERAL\": 1.0, \"BEVERAGES\": 1.1, \"LIVESTOCK\": 1.35, \"FRESH_FISH\": 1.4, \"CUT_FLOWERS\": 1.5, \"FRESH_PRODUCE\": 1.15}")
+  charterBasePriceMatrix            Json      @default("{}")
+  coldStartDefaultOnTimeRate        Decimal   @default(0.75) @db.Decimal(4, 3)
+  coldStartDefaultRouteFamiliarity  Decimal   @default(0.70) @db.Decimal(4, 3)
+  coldStartDefaultTrustScore        Decimal   @default(55.0) @db.Decimal(5, 2)
+  coldStartPremiumPct               Decimal   @default(0.10) @db.Decimal(4, 3)
+  coldStartSubsidizedLoadCount      Int       @default(3)
+  cooperativeAcceptanceWindowMin    Int       @default(15)
+  driverNoShowFeeEtb                Int       @default(500)
+  fastTrackAcceptanceWindowMin      Int       @default(10)
+  fuelAnomalyThresholdPct           Decimal   @default(15.0) @db.Decimal(5, 2)
+  fuelReportBonusEtb                Int       @default(50)
+  fuelReportCooldownHours           Int       @default(4)
+  fuelReportVerificationCount       Int       @default(2)
+  gpsSilenceGracePeriodMinutes      Int       @default(30)
+  homeZoneReturnScoreBonus          Decimal   @default(0.05) @db.Decimal(4, 3)
+  homeZoneReturnUrgencyBonus        Decimal   @default(0.20) @db.Decimal(4, 3)
+  hosAdvisoryHours                  Decimal   @default(8.0) @db.Decimal(4, 1)
+  hosNewLoadBlockHours              Decimal   @default(14.0) @db.Decimal(4, 1)
+  hosRestResetHours                 Decimal   @default(6.0) @db.Decimal(4, 1)
+  hosSoftBlockHours                 Decimal   @default(10.0) @db.Decimal(4, 1)
+  hosStrongAdvisoryHours            Decimal   @default(12.0) @db.Decimal(4, 1)
+  intercityDeviationThresholdKm     Decimal   @default(3.0) @db.Decimal(5, 2)
+  marketplaceMinActiveDrivers       Int       @default(200)
+  marketplaceMinAgents              Int       @default(20)
+  marketplaceMinAnchorShippers      Int       @default(3)
+  marketplaceMinOffPlatformTrips    Int       @default(500)
+  marketplaceMinOrganicAlerts       Int       @default(20)
+  microCreditFirstLoanMaxEtb        Int       @default(5000)
+  microCreditGracePeriodDays        Int       @default(3)
+  microCreditQualifyingTrips        Int       @default(5)
+  microCreditRepaymentDays          Int       @default(7)
+  microCreditSecondLoanMaxEtb       Int       @default(10000)
+  microCreditThirdLoanMaxEtb        Int       @default(20000)
+  ordererNoShowFeeEtb               Int       @default(1000)
+  partialEscrowReleasePct           Int       @default(30)
+  partialEscrowTriggerHours         Int       @default(24)
+  payoutSlaMinutes                  Int       @default(30)
+  recipientNoShowFeeEtb             Int       @default(300)
+  roadAlertBonusCooldownHours       Int       @default(4)
+  roadAlertBonusEtb                 Int       @default(200)
+  roadAlertValidityHours            Int       @default(6)
+  roadAlertVerificationCount        Int       @default(2)
+  standardAcceptanceWindowMin       Int       @default(20)
+  timeCriticalAcceptanceWindowMin   Int       @default(5)
+  trustMinTripsForTier2             Int       @default(3)
+  trustMinTripsForTier3             Int       @default(10)
+  trustMinTripsForTier4             Int       @default(25)
+  trustMinTripsForTier5             Int       @default(100)
+  trustTier3BonusEtb                Int       @default(500)
+  trustTier4BonusEtb                Int       @default(1000)
+  trustTier5BonusEtb                Int       @default(2000)
+  urbanDeviationThresholdKm         Decimal   @default(6.0) @db.Decimal(5, 2)
+  wdmAvailabilityWeight             Decimal   @default(0.15) @db.Decimal(4, 3)
+  wdmCorridorFamiliarityWeight      Decimal   @default(0.03) @db.Decimal(4, 3)
+  wdmLoadPreferenceWeight           Decimal   @default(0.08) @db.Decimal(4, 3)
+  wdmMultiStopZoneBonus             Decimal   @default(0.05) @db.Decimal(4, 3)
+  wdmOnTimeRateWeight               Decimal   @default(0.18) @db.Decimal(4, 3)
+  wdmOrdererReliabilityWeight       Decimal   @default(0.10) @db.Decimal(4, 3)
+  wdmPreferredPairingBonus          Decimal   @default(0.15) @db.Decimal(4, 3)
+  wdmProximityWeight                Decimal   @default(0.11) @db.Decimal(4, 3)
+  wdmRouteFamiliarityWeight         Decimal   @default(0.22) @db.Decimal(4, 3)
+  wdmTrustScoreWeight               Decimal   @default(0.16) @db.Decimal(4, 3)
+  wdmZoneMatchWeight                Decimal   @default(0.07) @db.Decimal(4, 3)
+
+  // Commission tiering configuration (Phase 8 feature)
+  commissionTier1MaxEtb             Int       @default(5000) @map("commission_tier_1_max_etb")
+  commissionTier2MaxEtb             Int       @default(30000) @map("commission_tier_2_max_etb")
+  commissionTier3MaxEtb             Int       @default(100000) @map("commission_tier_3_max_etb")
+  commissionTier1Pct                Decimal   @default(0.12) @map("commission_tier_1_pct") @db.Decimal(4, 3)
+  commissionTier2Pct                Decimal   @default(0.10) @map("commission_tier_2_pct") @db.Decimal(4, 3)
+  commissionTier3Pct                Decimal   @default(0.08) @map("commission_tier_3_pct") @db.Decimal(4, 3)
+  commissionTier4Pct                Decimal   @default(0.06) @map("commission_tier_4_pct") @db.Decimal(4, 3)
+  commissionMinEtb                  Int       @default(1500) @map("commission_min_etb")
+  commissionMaxEtb                  Int       @default(30000) @map("commission_max_etb")
+
+  @@map("strategy_versions")
+}
+
+model DecisionTrace {
+  id                String   @id @db.VarChar(26)
+  loadId            String   @map("load_id")
+  candidateTruckId  String   @map("candidate_truck_id")
+  candidateDriverId String   @map("candidate_driver_id")
+  strategyVersionId String   @map("strategy_version_id")
+  optimizationMode  String   @map("optimization_mode")
+  inputVariables    Json     @map("input_variables")
+  weightValues      Json     @map("weight_values")
+  factorScores      Json     @map("factor_scores")
+  finalScore        Decimal  @map("final_score") @db.Decimal(5, 2)
+  rank              Int
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  @@map("decision_traces")
+}
+
+model Incident {
+  id                 String             @id @db.VarChar(26)
+  tripId             String             @map("trip_id")
+  incidentType       String             @map("incident_type")
+  reportedBy         String             @map("reported_by")
+  reporterRole       String             @map("reporter_role")
+  status             String             @default("OPEN")
+  severity           String             @default("MEDIUM")
+  description        String
+  geoLat             Decimal?           @map("geo_lat") @db.Decimal(10, 6)
+  geoLng             Decimal?           @map("geo_lng") @db.Decimal(10, 6)
+  assignedTo         String?            @map("assigned_to")
+  liabilityParty     String?            @map("liability_party")
+  liabilityBreakdown Json?              @map("liability_breakdown")
+  penaltyEtb         Decimal            @default(0) @map("penalty_etb") @db.Decimal(12, 2)
+  compensationEtb    Decimal            @default(0) @map("compensation_etb") @db.Decimal(12, 2)
+  resolutionNotes    String?            @map("resolution_notes")
+  escalationReason   String?            @map("escalation_reason")
+  evidenceDeadline   DateTime?          @map("evidence_deadline")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  resolvedAt         DateTime?          @map("resolved_at")
+  deletedAt          DateTime?          @map("deleted_at")
+  incidentEvidence   IncidentEvidence[]
+  trip               Trip               @relation(fields: [tripId], references: [id])
+
+  @@map("incidents")
+}
+
+model IncidentEvidence {
+  id            String   @id @db.VarChar(26)
+  incidentId    String   @map("incident_id")
+  submittedBy   String   @map("submitted_by")
+  submitterRole String   @map("submitter_role")
+  evidenceType  String   @map("evidence_type")
+  s3Key         String   @map("s3_key")
+  s3Bucket      String   @map("s3_bucket")
+  description   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  incident      Incident @relation(fields: [incidentId], references: [id])
+
+  @@map("incident_evidence")
+}
+
+model FraudFlag {
+  id              String   @id @db.VarChar(26)
+  entityId        String   @map("entity_id")
+  entityType      String   @map("entity_type")
+  ruleId          String   @map("rule_id")
+  severity        String
+  confidenceScore Decimal? @map("confidence_score") @db.Decimal(5, 2)
+  evidence        Json?
+  status          String   @default("OPEN")
+  reviewedBy      String?  @map("reviewed_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("fraud_flags")
+}
+
+model ShockEvent {
+  id                      String    @id @db.VarChar(26)
+  shockType               String    @map("shock_type")
+  severity                Int
+  affectedCorridors       String[]  @map("affected_corridors")
+  description             String?
+  triggeredBy             String    @map("triggered_by")
+  triggeredByUserId       String?   @map("triggered_by_user_id")
+  startedAt               DateTime  @default(now()) @map("started_at")
+  endedAt                 DateTime? @map("ended_at")
+  isActive                Boolean   @default(true) @map("is_active")
+  actionsTaken            Json      @default("{}") @map("actions_taken")
+  
+  affectedCorridorIds     String[]  @default([]) @map("affected_corridor_ids")
+  // Array of corridor IDs affected by this shock
+  // Empty = shock affects all corridors or is global
+  
+  estimatedDurationDays   Int?      @map("estimated_duration_days")
+  // How long the shock is expected to last
+  // Null = unknown duration
+  
+  actualEndDate           DateTime? @map("actual_end_date")
+  // When the shock actually ended (set retroactively)
+  
+  pricingAdjustmentPct    Decimal?  @map("pricing_adjustment_pct") @db.Decimal(5, 2)
+  // % price increase applied during this shock
+  // e.g. 15.0 = 15% above normal pricing
+  // Null = no pricing adjustment made
+  
+  pricingAdjustmentNote   String?   @map("pricing_adjustment_note")
+  // Why this specific adjustment was chosen
+  
+  driverAdvisoryText      String?   @map("driver_advisory_text")
+  // Amharic-language advisory pushed to drivers on affected corridors
+  // e.g. "ጉዞ ከፍተኛ ዋጋ: ጎዳናው ላይ ጎርፍ ስለሆነ ዋጋ 15% ጨምሯል"
+  
+  resolvedByUserId        String?   @map("resolved_by_user_id") @db.VarChar(26)
+  // Ops team member who marked the shock as resolved
+
+  @@map("shock_events")
+}
+
+model Webhook {
+  id              String    @id @db.VarChar(26)
+  ordererId       String?   @map("orderer_id")
+  url             String
+  secret          String
+  events          String[]
+  isActive        Boolean   @default(true) @map("is_active")
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  failureCount    Int       @default(0) @map("failure_count")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@map("webhooks")
+}
+
+model NotificationPreference {
+  userId           String   @id @map("user_id") @db.VarChar(26)
+  smsEnabled       Boolean  @default(true) @map("sms_enabled")
+  pushEnabled      Boolean  @default(true) @map("push_enabled")
+  emailEnabled     Boolean  @default(false) @map("email_enabled")
+  assignmentNotify String   @default("SMS") @map("assignment_notify")
+  payoutNotify     String   @default("SMS") @map("payout_notify")
+  incidentNotify   String   @default("BOTH") @map("incident_notify")
+  marketingNotify  Boolean  @default(false) @map("marketing_notify")
+  quietHoursStart  Int?     @map("quiet_hours_start")
+  quietHoursEnd    Int?     @map("quiet_hours_end")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  @@map("notification_preferences")
+}
+
+model CorridorCheckpoint {
+  id                   String   @id @db.VarChar(26)
+  corridorId           String   @map("corridor_id")
+  name                 String
+  checkpointType       String   @map("checkpoint_type")
+  geoLat               Decimal? @map("geo_lat") @db.Decimal(10, 6)
+  geoLng               Decimal? @map("geo_lng") @db.Decimal(10, 6)
+  distanceFromOriginKm Int?     @map("distance_from_origin_km")
+  avgDelayMinutes      Int      @default(0) @map("avg_delay_minutes")
+  notes                String?
+  isActive             Boolean  @default(true) @map("is_active")
+  createdAt            DateTime @default(now()) @map("created_at")
+
+  @@map("corridor_checkpoints")
+}
+
+model EthiopianCalendarEvent {
+  id              String   @id @db.VarChar(26)
+  eventName       String   @map("event_name")
+  eventNameAmh    String?  @map("event_name_amh")
+  gregorianDate   DateTime @map("gregorian_date")
+  ethiopianDate   String?  @map("ethiopian_date")
+  affectedRegions String[] @map("affected_regions")
+  demandImpact    String   @map("demand_impact")
+  impactNotes     String?  @map("impact_notes")
+  isRecurring     Boolean  @default(true) @map("is_recurring")
+  year            Int
+
+  @@map("ethiopian_calendar_events")
+}
+
+model LoadStop {
+  id                       String    @id @db.VarChar(26)
+  loadId                   String    @map("load_id")
+  stopSequence             Int       @map("stop_sequence")
+  stopType                 String    @map("stop_type")
+  ordererId                String?   @map("orderer_id")
+  address                  String
+  lat                      Decimal?  @db.Decimal(10, 6)
+  lng                      Decimal?  @db.Decimal(10, 6)
+  scheduledArrival         DateTime? @map("scheduled_arrival")
+  actualArrival            DateTime? @map("actual_arrival")
+  cargoDescription         String?   @map("cargo_description")
+  weightKg                 Decimal?  @map("weight_kg") @db.Decimal(10, 2)
+  weightQuintals           Decimal?  @map("weight_quintals") @db.Decimal(10, 2)
+  unitCount                Int?      @map("unit_count")
+  unitType                 String?   @map("unit_type")
+  escrowAmountEtb          Int       @default(0) @map("escrow_amount_etb")
+  escrowFunded             Boolean   @default(false) @map("escrow_funded")
+  confirmedAt              DateTime? @map("confirmed_at")
+  confirmedBy              String?   @map("confirmed_by")
+  cargoConditionAtPickup   String?   @map("cargo_condition_at_pickup")
+  cargoConditionAtDelivery String?   @map("cargo_condition_at_delivery")
+  pickupPhotoUrl           String?   @map("pickup_photo_url")
+  pickupPhotoLat           Decimal?  @map("pickup_photo_lat") @db.Decimal(10, 6)
+  pickupPhotoLng           Decimal?  @map("pickup_photo_lng") @db.Decimal(10, 6)
+  pickupPhotoAt            DateTime? @map("pickup_photo_at")
+  weightTicketPhotoUrl     String?   @map("weight_ticket_photo_url")
+  notes                    String?
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  actualDepartedAt         DateTime? @map("actual_departed_at")
+  actualWeightKg           Int?      @map("actual_weight_kg")
+  contactName              String?   @map("contact_name")
+  contactPhone             String?   @map("contact_phone")
+  requiresSignature        Boolean   @default(false) @map("requires_signature")
+  signatureObtained        Boolean   @default(false) @map("signature_obtained")
+  specialInstructions      String?   @map("special_instructions")
+  waitingMinutes           Int?      @map("waiting_minutes")
+  zoneId                   String?   @map("zone_id")
+  load                     Load      @relation(fields: [loadId], references: [id])
+  orderer                  Orderer?  @relation(fields: [ordererId], references: [id])
+  zone                     Zone?     @relation(fields: [zoneId], references: [id])
+
+  @@map("load_stops")
+}
+
+model Expense {
+  id           String     @id @db.VarChar(26)
+  fleetOwnerId String     @map("fleet_owner_id")
+  truckId      String?    @map("truck_id")
+  tripId       String?    @map("trip_id")
+  expenseType  String     @map("expense_type")
+  amountEtb    Int        @map("amount_etb")
+  description  String?
+  recordedAt   DateTime   @default(now()) @map("recorded_at")
+  recordedBy   String     @map("recorded_by")
+  createdAt    DateTime   @default(now()) @map("created_at")
+  updatedAt    DateTime   @updatedAt @map("updated_at")
+  fleetOwner   FleetOwner @relation(fields: [fleetOwnerId], references: [id])
+
+  @@map("expenses")
+}
+
+model TruckMaintenance {
+  id              String    @id @db.VarChar(26)
+  truckId         String    @map("truck_id")
+  maintenanceType String    @map("maintenance_type")
+  scheduledDate   DateTime? @map("scheduled_date")
+  completedDate   DateTime? @map("completed_date")
+  costEtb         Int?      @map("cost_etb")
+  serviceProvider String?   @map("service_provider")
+  notes           String?
+  nextServiceDate DateTime? @map("next_service_date")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+  truck           Truck     @relation(fields: [truckId], references: [id])
+
+  @@map("truck_maintenance")
+}
+
+model FleetLoan {
+  id                String     @id @db.VarChar(26)
+  fleetOwnerId      String     @map("fleet_owner_id")
+  loanAmountEtb     Int        @map("loan_amount_etb")
+  outstandingEtb    Int        @map("outstanding_etb")
+  monthlyPaymentEtb Int        @map("monthly_payment_etb")
+  nextPaymentDue    DateTime?  @map("next_payment_due")
+  interestRate      Decimal    @map("interest_rate") @db.Decimal(5, 2)
+  loanStartDate     DateTime   @map("loan_start_date")
+  loanEndDate       DateTime?  @map("loan_end_date")
+  status            String     @default("ACTIVE") @map("status")
+  notes             String?
+  createdAt         DateTime   @default(now()) @map("created_at")
+  updatedAt         DateTime   @updatedAt @map("updated_at")
+  fleetOwner        FleetOwner @relation(fields: [fleetOwnerId], references: [id])
+
+  @@map("fleet_loans")
+}
+
+model DriverPerformanceSnapshot {
+  id               String   @id @db.VarChar(26)
+  driverId         String   @map("driver_id")
+  fleetOwnerId     String?  @map("fleet_owner_id")
+  periodMonth      Int      @map("period_month")
+  periodYear       Int      @map("period_year")
+  tripsCompleted   Int      @default(0) @map("trips_completed")
+  onTimeDeliveries Int      @default(0) @map("on_time_deliveries")
+  lateDeliveries   Int      @default(0) @map("late_deliveries")
+  incidentCount    Int      @default(0) @map("incident_count")
+  averageRating    Decimal? @map("average_rating") @db.Decimal(3, 2)
+  totalEarningsEtb Int      @default(0) @map("total_earnings_etb")
+  utilizationRate  Decimal? @map("utilization_rate") @db.Decimal(5, 2)
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([driverId, fleetOwnerId, periodMonth, periodYear])
+  @@map("driver_performance_snapshots")
+}
+
+model DriverFleetAffiliation {
+  id                String    @id @db.VarChar(26)
+  driverId          String    @map("driver_id")
+  fleetOwnerId      String    @map("fleet_owner_id")
+  status            String    @default("ACTIVE") @map("status")
+  paymentType       String    @default("SALARY") @map("payment_type")
+  paymentAmount     Int?      @map("payment_amount")
+  isCurrentlyActive Boolean   @default(false) @map("is_currently_active")
+  startDate         DateTime  @default(now()) @map("start_date")
+  endDate           DateTime? @map("end_date")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@unique([driverId, fleetOwnerId])
+  @@map("driver_fleet_affiliations")
+}
+
+model ApiKey {
+  id          String    @id @db.VarChar(26)
+  ordererId   String    @map("orderer_id")
+  keyHash     String    @unique @map("key_hash")
+  keyPrefix   String    @map("key_prefix")
+  name        String
+  permissions String[]  @default(["loads:create", "loads:read"]) @map("permissions")
+  isActive    Boolean   @default(true) @map("is_active")
+  lastUsedAt  DateTime? @map("last_used_at")
+  expiresAt   DateTime? @map("expires_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  orderer     Orderer   @relation(fields: [ordererId], references: [id])
+
+  @@map("api_keys")
+}
+
+model ProofOfDelivery {
+  id                 String    @id @db.VarChar(26)
+  loadId             String    @unique @map("load_id")
+  driverConfirmedAt  DateTime? @map("driver_confirmed_at")
+  ordererConfirmedAt DateTime? @map("orderer_confirmed_at")
+  generatedAt        DateTime? @map("generated_at")
+  pdfReference       String?   @map("pdf_reference")
+  tripSummary        Json      @default("{}") @map("trip_summary")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("proof_of_delivery")
+}
+
+model LoadTemplate {
+  id                      String    @id @db.VarChar(26)
+  ordererId               String    @map("orderer_id")
+  name                    String
+  corridorId              String?   @map("corridor_id")
+  loadType                String    @default("SIMPLE") @map("load_type")
+  preferredTruckBodyType  String?   @map("preferred_truck_body_type")
+  templateStops           Json      @default("[]") @map("template_stops")
+  isActive                Boolean   @default(true) @map("is_active")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  autoPostEnabled         Boolean   @default(false) @map("auto_post_enabled")
+  autoPostSchedule        String?   @map("auto_post_schedule")
+  cargoTypeML             String?   @map("cargo_type_ml")
+  insuranceRequiredML     Boolean   @default(false) @map("insurance_required_ml")
+  isHazardousML           Boolean   @default(false) @map("is_hazardous_ml")
+  lastUsedAt              DateTime? @map("last_used_at")
+  preferredBodyType       String?   @map("preferred_body_type")
+  requiresRefrigerationML Boolean   @default(false) @map("requires_refrigeration_ml")
+  stops                   Json?     @map("stops_json")
+  typicalEscrowEtb        Int?      @map("typical_escrow_etb")
+  typicalWeightKg         Int?      @map("typical_weight_kg")
+  useCount                Int       @default(0) @map("use_count")
+  orderer                 Orderer   @relation(fields: [ordererId], references: [id])
+  loads                   Load[]
+
+  @@map("load_templates")
+}
+
+model CheckpointLog {
+  id             String   @id @db.VarChar(26)
+  tripId         String   @map("trip_id")
+  driverId       String   @map("driver_id")
+  lat            Decimal  @db.Decimal(10, 6)
+  lng            Decimal  @db.Decimal(10, 6)
+  address        String?
+  checkpointType String   @default("POLICE") @map("checkpoint_type")
+  feeAmountEtb   Int      @default(0) @map("fee_amount_etb")
+  feeReimbursed  Boolean  @default(false) @map("fee_reimbursed")
+  notes          String?
+  loggedAt       DateTime @default(now()) @map("logged_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("checkpoint_logs")
+}
+
+model CancellationRecord {
+  id                  String   @id @db.VarChar(26)
+  loadId              String   @map("load_id")
+  cancelledBy         String   @map("cancelled_by")
+  cancelledByRole     String   @map("cancelled_by_role")
+  reason              String?
+  distanceTravelledKm Decimal? @map("distance_travelled_km") @db.Decimal(8, 2)
+  compensationOwedEtb Int      @default(0) @map("compensation_owed_etb")
+  compensationPaid    Boolean  @default(false) @map("compensation_paid")
+  cancelledAt         DateTime @default(now()) @map("cancelled_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@map("cancellation_records")
+}
+
+model LocationPing {
+  id            String   @id
+  tripId        String   @map("trip_id")
+  driverId      String   @map("driver_id")
+  loadId        String?  @map("load_id")
+  lat           Decimal  @db.Decimal(10, 6)
+  lng           Decimal  @db.Decimal(10, 6)
+  accuracy      Decimal? @map("accuracy") @db.Decimal(8, 2)
+  speedKmh      Decimal? @map("speed_kmh") @db.Decimal(6, 2)
+  headingDeg    Decimal? @map("heading_deg") @db.Decimal(5, 1)
+  altitudeM     Decimal? @map("altitude_m") @db.Decimal(8, 2)
+  batteryLevel  Int?     @map("battery_level")
+  source        String   @default("PHONE") @map("source")
+  isOfflineSync Boolean  @default(false) @map("is_offline_sync")
+  deviceId      String?  @map("device_id")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([tripId, createdAt])
+  @@index([driverId, createdAt])
+  @@map("location_pings")
+}
+
+model DeviceRegistration {
+  id           String    @id
+  truckId      String    @map("truck_id")
+  deviceType   String    @default("GPS_HARDWARE") @map("device_type")
+  deviceSerial String?   @map("device_serial")
+  apiKey       String    @unique @map("api_key")
+  apiKeyHash   String    @unique @map("api_key_hash")
+  isActive     Boolean   @default(true) @map("is_active")
+  lastSeenAt   DateTime? @map("last_seen_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@map("device_registrations")
+}
+
+model Zone {
+  id                           String     @id @default(cuid())
+  name                         String
+  nameAmharic                  String     @map("name_amharic")
+  city                         String     @default("Addis Ababa")
+  boundingBoxNorthLat          Decimal    @map("bounding_box_north_lat") @db.Decimal(10, 6)
+  boundingBoxSouthLat          Decimal    @map("bounding_box_south_lat") @db.Decimal(10, 6)
+  boundingBoxEastLng           Decimal    @map("bounding_box_east_lng") @db.Decimal(10, 6)
+  boundingBoxWestLng           Decimal    @map("bounding_box_west_lng") @db.Decimal(10, 6)
+  centerLat                    Decimal    @map("center_lat") @db.Decimal(10, 6)
+  centerLng                    Decimal    @map("center_lng") @db.Decimal(10, 6)
+  isCommercial                 Boolean    @default(true) @map("is_commercial")
+  adjacentZoneIds              String[]   @default([]) @map("adjacent_zone_ids")
+  truckDemandIndex             Decimal    @default(1.0) @map("truck_demand_index") @db.Decimal(5, 2)
+  averageTransitMinutesOffPeak Int        @default(30) @map("average_transit_minutes_off_peak")
+  averageTransitMinutesPeak    Int        @default(60) @map("average_transit_minutes_peak")
+  createdAt                    DateTime   @default(now()) @map("created_at")
+  corridorsDest                Corridor[] @relation("CorridorDestZone")
+  corridorsOrigin              Corridor[] @relation("CorridorOriginZone")
+  driversCurrently             Driver[]   @relation("DriverCurrentZone")
+  drivers                      Driver[]   @relation("DriverHomeZone")
+  loadStops                    LoadStop[]
+  loadsDelivery                Load[]     @relation("LoadDeliveryZone")
+  loadsPickup                  Load[]     @relation("LoadPickupZone")
+  terminals                    Terminal[]
+  trucksCurrently              Truck[]    @relation("TruckCurrentZone")
+  trucks                       Truck[]    @relation("TruckHomeZone")
+
+  @@map("zones")
+}
+
+model Terminal {
+  id                          String               @id @default(cuid())
+  name                        String
+  nameAmharic                 String               @map("name_amharic")
+  zoneId                      String               @map("zone_id")
+  lat                         Decimal              @db.Decimal(10, 6)
+  lng                         Decimal              @db.Decimal(10, 6)
+  currentQueueCount           Int                  @default(0) @map("current_queue_count")
+  averageWaitTimeMinutes      Int                  @default(0) @map("average_wait_time_minutes")
+  operatingHoursStart         String               @default("06:00") @map("operating_hours_start")
+  operatingHoursEnd           String               @default("20:00") @map("operating_hours_end")
+  isMajorInterchange          Boolean              @default(false) @map("is_major_interchange")
+  hasOvernightParking         Boolean              @default(false) @map("has_overnight_parking")
+  hasFuelNearby               Boolean              @default(false) @map("has_fuel_nearby")
+  hasMechanic                 Boolean              @default(false) @map("has_mechanic")
+  queueRadiusMeters           Int                  @default(400) @map("queue_radius_meters")
+  presencePingIntervalMinutes Int                  @default(15) @map("presence_ping_interval_minutes")
+  absenceGracePeriodMinutes   Int                  @default(30) @map("absence_grace_period_minutes")
+  isActive                    Boolean              @default(true) @map("is_active")
+  createdAt                   DateTime             @default(now()) @map("created_at")
+  updatedAt                   DateTime             @updatedAt @map("updated_at")
+  queueEntries                TerminalQueueEntry[]
+  zone                        Zone                 @relation(fields: [zoneId], references: [id])
+
+  @@map("terminals")
+}
+
+model TerminalQueueEntry {
+  id                 String    @id @default(cuid())
+  terminalId         String    @map("terminal_id")
+  truckId            String    @map("truck_id")
+  driverId           String    @map("driver_id")
+  fleetOwnerId       String    @map("fleet_owner_id")
+  checkedInAt        DateTime  @default(now()) @map("checked_in_at")
+  lastPresencePingAt DateTime  @default(now()) @map("last_presence_ping_at")
+  queuePosition      Int       @map("queue_position")
+  isActive           Boolean   @default(true) @map("is_active")
+  droppedAt          DateTime? @map("dropped_at")
+  dropReason         String?   @map("drop_reason")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  terminal           Terminal  @relation(fields: [terminalId], references: [id])
+
+  @@unique([terminalId, truckId, isActive])
+  @@map("terminal_queue_entries")
+}
+
+model BackhaulSuggestion {
+  id                 String         @id @default(cuid())
+  sourceTripId       String         @map("source_trip_id")
+  suggestedLoadId    String         @map("suggested_load_id")
+  truckId            String         @map("truck_id")
+  driverId           String         @map("driver_id")
+  fleetOwnerId       String         @map("fleet_owner_id")
+  projectedFreeAt    DateTime       @map("projected_free_at")
+  projectedFreeLat   Decimal        @map("projected_free_lat") @db.Decimal(10, 6)
+  projectedFreeLng   Decimal        @map("projected_free_lng") @db.Decimal(10, 6)
+  distanceToPickupKm Decimal        @map("distance_to_pickup_km") @db.Decimal(8, 2)
+  matchScore         Decimal        @map("match_score") @db.Decimal(5, 2)
+  bonusOfferedEtb    Int            @default(0) @map("bonus_offered_etb")
+  isNightRestricted  Boolean        @default(false) @map("is_night_restricted")
+  status             BackhaulStatus @default(PENDING)
+  notifiedAt         DateTime?      @map("notified_at")
+  respondedAt        DateTime?      @map("responded_at")
+  expiresAt          DateTime       @map("expires_at")
+  createdAt          DateTime       @default(now()) @map("created_at")
+
+  @@map("backhaul_suggestions")
+}
+
+model BrokerSuggestion {
+  id                String                 @id @default(cuid())
+  brokerId          String                 @map("broker_id")
+  loadId            String                 @map("load_id")
+  truckId           String                 @map("truck_id")
+  fleetOwnerId      String                 @map("fleet_owner_id")
+  ordererId         String                 @map("orderer_id")
+  status            BrokerSuggestionStatus @default(PENDING)
+  fleetAcceptedAt   DateTime?              @map("fleet_accepted_at")
+  ordererAcceptedAt DateTime?              @map("orderer_accepted_at")
+  rejectedBy        String?                @map("rejected_by")
+  rejectionReason   String?                @map("rejection_reason")
+  commissionEtb     Int                    @default(0) @map("commission_etb")
+  expiresAt         DateTime               @map("expires_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+
+  @@map("broker_suggestions")
+}
+
+model ConsolidatedLoad {
+  id                       String                       @id @default(cuid())
+  masterLoadId             String?                      @map("master_load_id")
+  consolidationType        String                       @map("consolidation_type")
+  agentId                  String?                      @map("agent_id") @db.VarChar(26)
+  aggregatorId             String                       @map("aggregator_id")
+  aggregatorType           AggregatorType
+  originCity               String                       @map("origin_city")
+  destinationCity          String                       @map("destination_city")
+  corridorId               String                       @map("corridor_id")
+  totalWeightKg            Int                          @default(0) @map("total_weight_kg")
+  truckCapacityKg          Int?                         @map("truck_capacity_kg")
+  totalEscrowEtb           Int                          @default(0) @map("total_escrow_etb")
+  status                   ConsolidatedLoadStatus       @default(COLLECTING)
+  loadId                   String?                      @map("load_id") @db.VarChar(26)
+  collectionDeadline       DateTime                     @map("collection_deadline")
+  minimumFillPct           Int                          @default(70) @map("minimum_fill_pct")
+  currentFillPct           Int                          @default(0) @map("current_fill_pct")
+  shortfallPolicy          ConsolidationShortfallPolicy @default(DISTRIBUTE)
+  distributionPointAddress String?                      @map("distribution_point_address")
+  distributionPointLat     Decimal?                     @map("distribution_point_lat") @db.Decimal(10, 6)
+  distributionPointLng     Decimal?                     @map("distribution_point_lng") @db.Decimal(10, 6)
+  createdAt                DateTime                     @default(now()) @map("created_at")
+  updatedAt                DateTime                     @updatedAt @map("updated_at")
+  cargoOffers              CargoOffer[]
+  subLoads                 SubLoad[]
+
+  @@map("consolidated_loads")
+}
+
+model SubLoad {
+  id                 String           @id @default(cuid())
+  consolidatedLoadId String           @map("consolidated_load_id")
+  ordererId          String           @map("orderer_id")
+  weightKg           Int              @map("weight_kg")
+  weightQuintals     Decimal          @map("weight_quintals") @db.Decimal(10, 2)
+  cargoDescription   String           @map("cargo_description")
+  cargoType          String           @default("GENERAL") @map("cargo_type")
+  escrowAmountEtb    Int              @map("escrow_amount_etb")
+  pickupAddress      String?          @map("pickup_address")
+  deliveryAddress    String?          @map("delivery_address")
+  status             SubLoadStatus    @default(PENDING)
+  confirmedAt        DateTime?        @map("confirmed_at")
+  cancelledAt        DateTime?        @map("cancelled_at")
+  cancellationReason String?          @map("cancellation_reason")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  updatedAt          DateTime         @updatedAt @map("updated_at")
+  consolidatedLoad   ConsolidatedLoad @relation(fields: [consolidatedLoadId], references: [id])
+
+  @@map("sub_loads")
+}
+
+model ConsolidationAgent {
+  id                       String    @id @default(cuid())
+  userId                   String    @unique @map("user_id")
+  agentType                AgentType
+  operatingZoneIds         String[]  @default([]) @map("operating_zone_ids")
+  operatingCorridorIds     String[]  @default([]) @map("operating_corridor_ids")
+  distributionPointLat     Decimal?  @map("distribution_point_lat") @db.Decimal(10, 6)
+  distributionPointLng     Decimal?  @map("distribution_point_lng") @db.Decimal(10, 6)
+  distributionPointAddress String?   @map("distribution_point_address")
+  warehouseCapacityKg      Int?      @map("warehouse_capacity_kg")
+  commissionRatePct        Decimal   @default(2.0) @map("commission_rate_pct") @db.Decimal(4, 2)
+  isVerified               Boolean   @default(false) @map("is_verified")
+  totalConsolidations      Int       @default(0) @map("total_consolidations")
+  averageRating            Decimal   @default(5.0) @map("average_rating") @db.Decimal(3, 2)
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+
+  @@map("consolidation_agents")
+}
+
+model Broker {
+  id                    String   @id @default(cuid())
+  userId                String   @unique @map("user_id")
+  operatingZoneIds      String[] @default([]) @map("operating_zone_ids")
+  operatingCorridorIds  String[] @default([]) @map("operating_corridor_ids")
+  commissionPerMatchEtb Int      @default(20000) @map("commission_per_match_etb")
+  totalMatchesCompleted Int      @default(0) @map("total_matches_completed")
+  averageRating         Decimal  @default(5.0) @map("average_rating") @db.Decimal(3, 2)
+  isVerified            Boolean  @default(false) @map("is_verified")
+  totalEarningsEtb      Int      @default(0) @map("total_earnings_etb")
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  @@map("brokers")
+}
+
+model CheckpointIntelligence {
+  id             String   @id @default(cuid())
+  corridorId     String?  @map("corridor_id")
+  lat            Decimal  @db.Decimal(10, 6)
+  lng            Decimal  @db.Decimal(10, 6)
+  checkpointType String   @map("checkpoint_type")
+  locationName   String?  @map("location_name")
+  averageFeeEtb  Int      @default(0) @map("average_fee_etb")
+  maxFeeEtb      Int      @default(0) @map("max_fee_etb")
+  reportCount    Int      @default(0) @map("report_count")
+  isOfficialToll Boolean  @default(false) @map("is_official_toll")
+  lastReportedAt DateTime @default(now()) @map("last_reported_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("checkpoint_intelligence")
+}
+
+model WeighbridgeLog {
+  id               String   @id @default(cuid())
+  tripId           String   @map("trip_id")
+  truckId          String   @map("truck_id")
+  driverId         String   @map("driver_id")
+  corridorId       String?  @map("corridor_id")
+  lat              Decimal  @db.Decimal(10, 6)
+  lng              Decimal  @db.Decimal(10, 6)
+  locationName     String?  @map("location_name")
+  recordedWeightKg Int      @map("recorded_weight_kg")
+  legalLimitKg     Int      @map("legal_limit_kg")
+  toleranceKg      Int      @map("tolerance_kg")
+  wasOverweight    Boolean  @map("was_overweight")
+  withinTolerance  Boolean  @default(true) @map("within_tolerance")
+  fineAmountEtb    Int      @default(0) @map("fine_amount_etb")
+  delayMinutes     Int      @default(0) @map("delay_minutes")
+  loggedAt         DateTime @default(now()) @map("logged_at")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("weighbridge_logs")
+}
+
+model FuelPriceSnapshot {
+  id                     String          @id @default(cuid())
+  recordedAt             DateTime        @default(now()) @map("recorded_at")
+  dieselPriceEtbPerLiter Decimal         @map("diesel_price_etb_per_liter") @db.Decimal(6, 2)
+  petrolPriceEtbPerLiter Decimal?        @map("petrol_price_etb_per_liter") @db.Decimal(6, 2)
+  region                 String
+  source                 FuelPriceSource @default(MANUAL)
+  reportedByDriverId     String?         @map("reported_by_driver_id")
+  createdAt              DateTime        @default(now()) @map("created_at")
+
+  @@map("fuel_price_snapshots")
+}
+
+model RouteDeviation {
+  id                String    @id @default(cuid())
+  tripId            String    @map("trip_id")
+  driverId          String    @map("driver_id")
+  deviationStartLat Decimal   @map("deviation_start_lat") @db.Decimal(10, 6)
+  deviationStartLng Decimal   @map("deviation_start_lng") @db.Decimal(10, 6)
+  deviatedAt        DateTime  @map("deviated_at")
+  returnedAt        DateTime? @map("returned_at")
+  deviationKm       Decimal   @map("deviation_km") @db.Decimal(8, 2)
+  reason            String?
+  wasAuthorized     Boolean   @default(false) @map("was_authorized")
+  reviewedByOps     Boolean   @default(false) @map("reviewed_by_ops")
+  penaltyApplied    Boolean   @default(false) @map("penalty_applied")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@map("route_deviations")
+}
+
+model TruckAvailabilitySlot {
+  id                   String     @id @default(cuid())
+  truckId              String     @map("truck_id")
+  driverId             String?    @map("driver_id")
+  fleetOwnerId         String?    @map("fleet_owner_id")
+  availableFrom        DateTime   @map("available_from")
+  availableUntil       DateTime?  @map("available_until")
+  locationLat          Decimal    @map("location_lat") @db.Decimal(10, 6)
+  locationLng          Decimal    @map("location_lng") @db.Decimal(10, 6)
+  zoneId               String?    @map("zone_id")
+  corridorPreferenceId String?    @map("corridor_preference_id")
+  isRecurring          Boolean    @default(false) @map("is_recurring")
+  recurringDays        ShiftDay[] @default([]) @map("recurring_days")
+  createdAt            DateTime   @default(now()) @map("created_at")
+
+  @@map("truck_availability_slots")
+}
+
+model DigitalVoucher {
+  id               String        @id @default(cuid())
+  code             String        @unique
+  recipientUserId  String        @map("recipient_user_id")
+  voucherType      String        @map("voucher_type")
+  amountEtb        Int           @map("amount_etb")
+  issuedByUserId   String        @map("issued_by_user_id")
+  redeemedByUserId String?       @map("redeemed_by_user_id")
+  status           VoucherStatus @default(ACTIVE)
+  expiresAt        DateTime      @map("expires_at")
+  redeemedAt       DateTime?     @map("redeemed_at")
+  corridorId       String?       @map("corridor_id")
+  notes            String?
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  @@map("digital_vouchers")
+}
+
+model LiquidityIncentive {
+  id               String                 @id @default(cuid())
+  corridorId       String?                @map("corridor_id")
+  zoneId           String?                @map("zone_id")
+  targetType       String?                @map("target_type")
+  targetId         String?                @map("target_id")
+  incentiveType    LiquidityIncentiveType
+  valueEtb         Int                    @map("value_etb")
+  triggerCondition String                 @map("trigger_condition")
+  validFrom        DateTime?              @map("valid_from")
+  validUntil       DateTime?              @map("valid_until")
+  description      String?
+  usageCount       Int                    @default(0) @map("usage_count")
+  maxUsageCount    Int                    @default(100) @map("max_usage_count")
+  isActive         Boolean                @default(true) @map("is_active")
+  expiresAt        DateTime?              @map("expires_at")
+  createdAt        DateTime               @default(now()) @map("created_at")
+  updatedAt        DateTime               @updatedAt @map("updated_at")
+
+  @@map("liquidity_incentives")
+}
+
+model RecoveryResource {
+  id                     String               @id @default(cuid())
+  name                   String
+  nameAmharic            String?              @map("name_amharic")
+  resourceType           RecoveryResourceType
+  ownerName              String               @map("owner_name")
+  ownerPhone             String               @map("owner_phone")
+  lat                    Decimal              @db.Decimal(10, 6)
+  lng                    Decimal              @db.Decimal(10, 6)
+  zoneId                 String?              @map("zone_id")
+  corridorIds            String[]             @default([]) @map("corridor_ids")
+  specializations        String[]             @default([]) @map("specializations")
+  averageResponseMinutes Int                  @default(60) @map("average_response_minutes")
+  averageRateEtb         Int                  @default(0) @map("average_rate_etb")
+  isVerified             Boolean              @default(false) @map("is_verified")
+  isActive               Boolean              @default(true) @map("is_active")
+  lastActiveAt           DateTime?            @map("last_active_at")
+  rating                 Decimal              @default(5.0) @map("rating") @db.Decimal(3, 2)
+  createdAt              DateTime             @default(now()) @map("created_at")
+  updatedAt              DateTime             @updatedAt @map("updated_at")
+
+  @@map("recovery_resources")
+}
+
+model DriverEarning {
+  id               String              @id @default(cuid())
+  driverId         String              @map("driver_id")
+  tripId           String?             @map("trip_id")
+  loadId           String?             @map("load_id")
+  earningType      DriverEarningType   @map("earning_type")
+  amountEtb        Int                 @map("amount_etb")
+  status           DriverEarningStatus @default(PENDING)
+  paidAt           DateTime?           @map("paid_at")
+  paidByFleetOwner Boolean             @default(false) @map("paid_by_fleet_owner")
+  description      String?
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  @@map("driver_earnings")
+}
+
+model TripEventLog {
+  id                   String                        @id @default(cuid())
+  tripId               String                        @map("trip_id")
+  driverId             String                        @map("driver_id")
+  eventType            TripEventType                 @map("event_type")
+  eventData            Json                          @map("event_data")
+  occurredAt           DateTime                      @map("occurred_at")
+  syncedAt             DateTime                      @default(now()) @map("synced_at")
+  wasOffline           Boolean                       @default(false) @map("was_offline")
+  reconciliationStatus TripEventReconciliationStatus @default(ACCEPTED) @map("reconciliation_status")
+  rejectionReason      String?                       @map("rejection_reason")
+  createdAt            DateTime                      @default(now()) @map("created_at")
+
+  @@map("trip_event_logs")
+}
+
+model ReferralRecord {
+  id               String         @id @default(cuid())
+  referrerId       String         @map("referrer_id")
+  referredId       String         @map("referred_id")
+  referralCode     String         @map("referral_code")
+  referralType     ReferralType?  @map("referral_type")
+  triggerCondition String?        @map("trigger_condition")
+  bonusCents       Int?           @map("bonus_cents")
+  status           ReferralStatus @default(PENDING)
+  rewardAmountEtb  Int            @default(0) @map("reward_amount_etb")
+  qualifiedAt      DateTime?      @map("qualified_at")
+  rewardPaidAt     DateTime?      @map("reward_paid_at")
+  completedAt      DateTime?      @map("completed_at")
+  paidAt           DateTime?      @map("paid_at")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  @@unique([referrerId, referredId])
+  @@map("referral_records")
+}
+
+model ZoneDemandSnapshot {
+  id                 String   @id @default(cuid())
+  zoneId             String   @map("zone_id")
+  availableTrucks    Int      @default(0) @map("available_trucks")
+  openLoads          Int      @default(0) @map("open_loads")
+  demandIndex        Decimal  @default(1.0) @map("demand_index") @db.Decimal(5, 2)
+  terminalQueueCount Int      @default(0) @map("terminal_queue_count")
+  snapshotAt         DateTime @default(now()) @map("snapshot_at")
+
+  @@map("zone_demand_snapshots")
+}
+
+model StrategyConfig {
+  id              String    @id @db.VarChar(26)
+  versionName     String    @map("version_name")
+  configJson      Json      @map("config_json")
+  isActive        Boolean   @default(false) @map("is_active")
+  activatedAt     DateTime? @map("activated_at")
+  createdByUserId String?   @map("created_by_user_id") @db.VarChar(26)
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@map("strategy_configs")
+}
+
+model TripStop {
+  id               String         @id @db.VarChar(26)
+  tripId           String         @map("trip_id") @db.VarChar(26)
+  stopNumber       Int            @map("stop_number")
+  locationLat      Float          @map("location_lat")
+  locationLng      Float          @map("location_lng")
+  locationName     String         @map("location_name")
+  cargoQuantityKg  Int            @map("cargo_quantity_kg")
+  recipientName    String         @map("recipient_name")
+  recipientPhone   String         @map("recipient_phone")
+  timeWindowStart  DateTime?      @map("time_window_start")
+  timeWindowEnd    DateTime?      @map("time_window_end")
+  arrivedAt        DateTime?      @map("arrived_at")
+  completedAt      DateTime?      @map("completed_at")
+  podPhotoUrl      String?        @map("pod_photo_url")
+  podSignatureUrl  String?        @map("pod_signature_url")
+  recipientOtp     String?        @map("recipient_otp")
+  status           TripStopStatus @default(PENDING)
+  escrowReleasePct Int            @default(0) @map("escrow_release_pct")
+  notes            String?
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+  trip             Trip           @relation(fields: [tripId], references: [id])
+
+  @@map("trip_stops")
+}
+
+model CargoOffer {
+  id                 String            @id @db.VarChar(26)
+  agentId            String            @map("agent_id") @db.VarChar(26)
+  traderId           String            @map("trader_id") @db.VarChar(26)
+  corridorId         String            @map("corridor_id") @db.VarChar(26)
+  originZoneId       String            @map("origin_zone_id") @db.VarChar(26)
+  destZoneId         String            @map("dest_zone_id") @db.VarChar(26)
+  cargoType          String            @map("cargo_type")
+  weightKg           Int               @map("weight_kg")
+  pickupDate         DateTime          @map("pickup_date")
+  status             CargoOfferStatus  @default(OPEN)
+  consolidatedLoadId String?           @map("consolidated_load_id") @db.VarChar(26)
+  escrowAmountCents  Int               @default(0) @map("escrow_amount_cents")
+  paymentRailId      String?           @map("payment_rail_id")
+  agentSettledAt     DateTime?         @map("agent_settled_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  consolidatedLoad   ConsolidatedLoad? @relation(fields: [consolidatedLoadId], references: [id])
+
+  @@map("cargo_offers")
+}
+
+model RouteContract {
+  id                  String                 @id @db.VarChar(26)
+  ordererId           String                 @map("orderer_id") @db.VarChar(26)
+  preferredFleetId    String?                @map("preferred_fleet_id") @db.VarChar(26)
+  corridorId          String                 @map("corridor_id") @db.VarChar(26)
+  cargoType           String                 @map("cargo_type")
+  weightKg            Int                    @map("weight_kg")
+  startDate           DateTime               @map("start_date")
+  endDate             DateTime               @map("end_date")
+  agreedRateCents     Int                    @map("agreed_rate_cents")
+  autoPost            Boolean                @default(true) @map("auto_post")
+  nextPostDate        DateTime?              @map("next_post_date")
+  status              String                 @default("ACTIVE")
+  tripCount           Int                    @default(0) @map("trip_count")
+  renewalReminderSent Boolean                @default(false) @map("renewal_reminder_sent")
+  createdAt           DateTime               @default(now()) @map("created_at")
+  updatedAt           DateTime               @updatedAt @map("updated_at")
+  pausedAt            DateTime?              @map("paused_at")
+  pendingJobId        String?                @map("pending_job_id")
+  frequency           RouteContractFrequency @default(WEEKLY)
+
+  @@map("route_contracts")
+}
+
+model TripRelay {
+  id                String      @id @db.VarChar(26)
+  tripId            String      @map("trip_id") @db.VarChar(26)
+  primaryDriverId   String      @map("primary_driver_id") @db.VarChar(26)
+  secondaryDriverId String      @map("secondary_driver_id") @db.VarChar(26)
+  handoffLat        Float?      @map("handoff_lat")
+  handoffLng        Float?      @map("handoff_lng")
+  handoffAt         DateTime?   @map("handoff_at")
+  earningsSplitPct  Int         @map("earnings_split_pct")
+  primaryStatus     RelayStatus @default(PENDING) @map("primary_status")
+  secondaryStatus   RelayStatus @default(PENDING) @map("secondary_status")
+  createdAt         DateTime    @default(now()) @map("created_at")
+  updatedAt         DateTime    @updatedAt @map("updated_at")
+
+  @@map("trip_relays")
+}
+
+model TransportCooperative {
+  id                 String              @id @db.VarChar(26)
+  name               String
+  nameAmharic        String?             @map("name_amharic")
+  registrationNumber String              @unique @map("registration_number")
+  dispatcherUserId   String              @map("dispatcher_user_id") @db.VarChar(26)
+  zoneId             String              @map("zone_id") @db.VarChar(26)
+  trustTier          Int                 @default(2) @map("trust_tier")
+  memberCount        Int                 @default(0) @map("member_count")
+  status             String              @default("ACTIVE")
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  members            CooperativeMember[]
+
+  @@map("transport_cooperatives")
+}
+
+model CooperativeMember {
+  id            String               @id @db.VarChar(26)
+  cooperativeId String               @map("cooperative_id") @db.VarChar(26)
+  fleetOwnerId  String               @map("fleet_owner_id") @db.VarChar(26)
+  joinedAt      DateTime             @default(now()) @map("joined_at")
+  status        String               @default("ACTIVE")
+  createdAt     DateTime             @default(now()) @map("created_at")
+  updatedAt     DateTime             @updatedAt @map("updated_at")
+  cooperative   TransportCooperative @relation(fields: [cooperativeId], references: [id])
+
+  @@map("cooperative_members")
+}
+
+model RoadAlert {
+  id                String                  @id @default(cuid()) @db.VarChar(26)
+  severity          String                  @default("MEDIUM")
+  lat               Decimal                 @db.Decimal(10, 6)
+  lng               Decimal                 @db.Decimal(10, 6)
+  description       String?
+  alertType         String
+  bonusPaid         Boolean                 @default(false)
+  bonusPaidEtb      Int                     @default(0)
+  clearedAt         DateTime?
+  clearedByUserId   String?                 @db.VarChar(26)
+  corridorId        String?                 @db.VarChar(26)
+  createdAt         DateTime                @default(now())
+  expiresAt         DateTime
+  isVerified        Boolean                 @default(false)
+  locationName      String?
+  reportedByRole    String?
+  reportedByUserId  String?                 @db.VarChar(26)
+  source            String                  @default("DRIVER_APP")
+  updatedAt         DateTime                @updatedAt
+  verificationCount Int                     @default(0)
+  confirmations     RoadAlertConfirmation[]
+
+  @@index([corridorId, expiresAt])
+  @@index([lat, lng])
+  @@index([alertType, createdAt])
+  @@index([isVerified, expiresAt])
+  @@map("road_alerts")
+}
+
+model RoadAlertConfirmation {
+  id                String    @id @default(cuid()) @db.VarChar(26)
+  alertId           String    @db.VarChar(26)
+  confirmedByUserId String    @db.VarChar(26)
+  confirmedAt       DateTime  @default(now())
+  alert             RoadAlert @relation(fields: [alertId], references: [id], onDelete: Cascade)
+
+  @@unique([alertId, confirmedByUserId])
+}
+
+model OffPlatformTrip {
+  id                    String    @id @default(cuid()) @db.VarChar(26)
+  driverId              String    @map("driver_id") @db.VarChar(26)
+  fleetOwnerId          String?   @map("fleet_owner_id") @db.VarChar(26)
+  originZoneId          String?   @map("origin_zone_id") @db.VarChar(26)
+  destZoneId            String?   @map("dest_zone_id") @db.VarChar(26)
+  corridorId            String?   @map("corridor_id") @db.VarChar(26)
+  cargoType             String?   @map("cargo_type")
+  weightKg              Int?      @map("weight_kg")
+  earningsCents         Int?      @map("earnings_cents")
+  completedAt           DateTime  @map("completed_at")
+  verifiedByFleetOwner  Boolean   @default(false) @map("verified_by_fleet_owner")
+  trustWeightPct        Int       @default(60) @map("trust_weight_pct")
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  destinationCity       String?
+  distanceKm            Decimal?  @db.Decimal(8, 2)
+  earningsEtb           Decimal?  @db.Decimal(12, 2)
+  earningsGapEtb        Decimal?  @db.Decimal(12, 2)
+  fuelCostEtb           Decimal?  @db.Decimal(10, 2)
+  notes                 String?
+  originCity            String?
+  otherCostsEtb         Decimal?  @db.Decimal(10, 2)
+  platformEquivalentEtb Decimal?  @db.Decimal(12, 2)
+  reportedAt            DateTime  @default(now()) @map("reported_at")
+  status                String    @default("REPORTED")
+  tripDate              DateTime?
+  truckId               String?   @db.VarChar(26)
+  verifiedAt            DateTime?
+  verifiedByAgentId     String?   @db.VarChar(26)
+  weightQuintals        Decimal?  @db.Decimal(8, 2)
+
+  @@index([driverId, tripDate])
+  @@index([status])
+  @@map("off_platform_trips")
+}
+
+model MaintenanceLog {
+  id             String          @id @db.VarChar(26)
+  truckId        String          @map("truck_id") @db.VarChar(26)
+  serviceType    MaintenanceType @map("service_type")
+  description    String?
+  costCents      Int             @default(0) @map("cost_cents")
+  servicedAt     DateTime        @map("serviced_at")
+  nextServiceDue DateTime?       @map("next_service_due")
+  nextServiceKm  Int?            @map("next_service_km")
+  mechanic       String?
+  notes          String?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  @@map("maintenance_logs")
+}
+
+model WarehouseQueue {
+  id                 String    @id @db.VarChar(26)
+  locationName       String    @map("location_name")
+  lat                Float
+  lng                Float
+  zoneId             String    @map("zone_id") @db.VarChar(26)
+  currentWaitMin     Int       @default(0) @map("current_wait_min")
+  lastReportedAt     DateTime? @map("last_reported_at")
+  reportedByDriverId String?   @map("reported_by_driver_id") @db.VarChar(26)
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  status             String    @default("ACTIVE")
+
+  @@map("warehouse_queues")
+}
+
+model DirectBooking {
+  id                String              @id @db.VarChar(26)
+  loadId            String              @map("load_id") @db.VarChar(26)
+  ordererId         String              @map("orderer_id") @db.VarChar(26)
+  requestedDriverId String              @map("requested_driver_id") @db.VarChar(26)
+  requestedTruckId  String?             @map("requested_truck_id") @db.VarChar(26)
+  offeredAt         DateTime            @default(now()) @map("offered_at")
+  respondedAt       DateTime?           @map("responded_at")
+  expiresAt         DateTime            @map("expires_at")
+  status            DirectBookingStatus @default(PENDING)
+  blockedReason     String?             @map("blocked_reason")
+  createdAt         DateTime            @default(now()) @map("created_at")
+  updatedAt         DateTime            @updatedAt @map("updated_at")
+
+  @@map("direct_bookings")
+}
+
+model AgentWallet {
+  id                     String    @id @db.VarChar(26)
+  agentUserId            String    @unique @map("agent_user_id") @db.VarChar(26)
+  balanceCents           Int       @default(0) @map("balance_cents")
+  pendingSettlementCents Int       @default(0) @map("pending_settlement_cents")
+  lastSettledAt          DateTime? @map("last_settled_at")
+  totalCollectedCents    Int       @default(0) @map("total_collected_cents")
+  totalSettledCents      Int       @default(0) @map("total_settled_cents")
+  createdAt              DateTime  @default(now()) @map("created_at")
+  updatedAt              DateTime  @updatedAt @map("updated_at")
+
+  @@map("agent_wallets")
+}
+
+model EscrowLedgerEntry {
+  id                String    @id @db.VarChar(26)
+  loadId            String?   @map("load_id") @db.VarChar(26)
+  tripId            String?   @map("trip_id") @db.VarChar(26)
+  fromUserId        String?   @map("from_user_id") @db.VarChar(26)
+  toUserId          String?   @map("to_user_id") @db.VarChar(26)
+  amountCents       Int       @map("amount_cents")
+  type              String
+  paymentRailId     String?   @map("payment_rail_id")
+  providerReference String?   @map("provider_reference")
+  status            String    @default("PENDING")
+  notes             String?
+  failureReason     String?   @map("failure_reason")
+  retryCount        Int       @default(0) @map("retry_count")
+  settledAt         DateTime? @map("settled_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("escrow_ledger_entries")
+}
+
+model MicroCreditLoan {
+  id               String     @id @db.VarChar(26)
+  borrowerUserId   String     @map("borrower_user_id") @db.VarChar(26)
+  guarantorAgentId String?    @map("guarantor_agent_id") @db.VarChar(26)
+  loadId           String?    @map("load_id") @db.VarChar(26)
+  amountCents      Int        @map("amount_cents")
+  dueDateAt        DateTime   @map("due_date_at")
+  status           LoanStatus @default(ACTIVE)
+  repaidAt         DateTime?  @map("repaid_at")
+  repaidCents      Int        @default(0) @map("repaid_cents")
+  lateFeeCents     Int        @default(0) @map("late_fee_cents")
+  agentHoldApplied Boolean    @default(false) @map("agent_hold_applied")
+  createdAt        DateTime   @default(now()) @map("created_at")
+  updatedAt        DateTime   @updatedAt @map("updated_at")
+
+  @@map("micro_credit_loans")
+}
+
+model SecurityZone {
+  id              String             @id @db.VarChar(26)
+  corridorId      String             @map("corridor_id") @db.VarChar(26)
+  status          SecurityZoneStatus @default(NORMAL)
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  updatedByUserId String?            @map("updated_by_user_id") @db.VarChar(26)
+  description     String?
+  dataSource      String?            @map("data_source")
+  createdAt       DateTime           @default(now()) @map("created_at")
+
+  @@map("security_zones")
+}
+
+model MarketDay {
+  id              String   @id @db.VarChar(26)
+  zoneId          String   @map("zone_id") @db.VarChar(26)
+  dayOfWeek       Int      @map("day_of_week")
+  marketName      String   @map("market_name")
+  demandBoostPct  Int      @default(10) @map("demand_boost_pct")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  peakLoadingHour Int      @default(6) @map("peak_loading_hour")
+
+  @@map("market_days")
+}
+
+model LoadBlockPreference {
+  id         String              @id @db.VarChar(26)
+  fromUserId String              @map("from_user_id") @db.VarChar(26)
+  toUserId   String              @map("to_user_id") @db.VarChar(26)
+  type       BlockPreferenceType
+  reason     String?
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  @@unique([fromUserId, toUserId])
+  @@map("load_block_preferences")
+}
+
+model ColdChainLog {
+  id                 String   @id @db.VarChar(26)
+  tripId             String   @map("trip_id")
+  checkpointId       String?  @map("checkpoint_id")
+  temperatureCelsius Int      @map("temperature_celsius")
+  cargoType          String   @map("cargo_type")
+  recordedAt         DateTime @default(now()) @map("recorded_at")
+  isExcursion        Boolean  @default(false) @map("is_excursion")
+  excursionAlertSent Boolean  @default(false) @map("excursion_alert_sent")
+
+  @@index([tripId, recordedAt])
+  @@map("cold_chain_logs")
+}
+
+model AgentClient {
+  id           String   @id @db.VarChar(26)
+  agentUserId  String   @map("agent_user_id") @db.VarChar(26)
+  clientUserId String   @map("client_user_id") @db.VarChar(26)
+  zoneId       String   @map("zone_id") @db.VarChar(26)
+  businessType String   @map("business_type")
+  registeredAt DateTime @default(now()) @map("registered_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  agent        User     @relation("AgentToClients", fields: [agentUserId], references: [id])
+  client       User     @relation("ClientToAgents", fields: [clientUserId], references: [id])
+
+  @@unique([agentUserId, clientUserId])
+  @@map("agent_clients")
+}
+
+model UssdSession {
+  id          String   @id @db.VarChar(26)
+  sessionId   String   @unique @map("session_id")
+  phoneNumber String   @map("phone_number")
+  state       String   @default("MAIN_MENU") @map("state")
+  data        Json?    @map("data")
+  createdAt   DateTime @default(now()) @map("created_at")
+  expiresAt   DateTime @map("expires_at")
+
+  @@index([phoneNumber, createdAt])
+  @@map("ussd_sessions")
+}
+
+model TelegramAccount {
+  id                String                 @id @default(cuid()) @db.VarChar(26)
+  userId            String                 @unique @map("user_id") @db.VarChar(26)
+  telegramUserId    String                 @unique @map("telegram_user_id")
+  telegramHandle    String?                @map("telegram_handle")
+  telegramFirstName String?                @map("telegram_first_name")
+  telegramLastName  String?                @map("telegram_last_name")
+  telegramPhotoUrl  String?                @map("telegram_photo_url")
+  linkCode          String?                @map("link_code")
+  linkCodeExpiresAt DateTime?              @map("link_code_expires_at")
+  isActive          Boolean                @default(true) @map("is_active")
+  linkedAt          DateTime               @default(now()) @map("linked_at")
+  updatedAt         DateTime               @updatedAt @map("updated_at")
+  createdAt         DateTime               @default(now()) @map("created_at")
+  locationSyncs     TelegramLocationSync[]
+
+  @@index([telegramUserId])
+  @@map("telegram_accounts")
+}
+
+model TelegramLocationSync {
+  id                String          @id @default(cuid()) @db.VarChar(26)
+  telegramAccountId String          @map("telegram_account_id") @db.VarChar(26)
+  driverId          String?         @map("driver_id") @db.VarChar(26)
+  lat               Decimal         @db.Decimal(10, 6)
+  lng               Decimal         @db.Decimal(10, 6)
+  accuracy          Decimal?        @db.Decimal(8, 2)
+  livePeriodSeconds Int?            @map("live_period_seconds")
+  isLiveLocation    Boolean         @default(false) @map("is_live_location")
+  receivedAt        DateTime        @default(now()) @map("received_at")
+  createdAt         DateTime        @default(now()) @map("created_at")
+  telegramAccount   TelegramAccount @relation(fields: [telegramAccountId], references: [id], onDelete: Cascade)
+
+  @@index([telegramAccountId, receivedAt])
+  @@index([driverId, receivedAt])
+  @@map("telegram_location_syncs")
+}
+
+model TelegramCorridorChannel {
+  id              String             @id @default(cuid()) @db.VarChar(26)
+  corridorId      String?            @map("corridor_id") @db.VarChar(26)
+  channelId       String             @unique @map("channel_id")
+  channelName     String             @map("channel_name")
+  channelUsername String?            @map("channel_username")
+  channelType     String             @default("GROUP") @map("channel_type")
+  isMonitored     Boolean            @default(true) @map("is_monitored")
+  memberCount     Int?               @map("member_count")
+  lastMessageAt   DateTime?          @map("last_message_at")
+  lastHarvestAt   DateTime?          @map("last_harvest_at")
+  loadPostCount   Int                @default(0) @map("load_post_count")
+  conversionCount Int                @default(0) @map("conversion_count")
+  createdAt       DateTime           @default(now()) @map("created_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  loadPosts       TelegramLoadPost[]
+
+  @@index([corridorId])
+  @@index([isMonitored])
+  @@map("telegram_corridor_channels")
+}
+
+model TelegramLoadPost {
+  id                   String                  @id @default(cuid()) @db.VarChar(26)
+  channelId            String                  @map("channel_id") @db.VarChar(26)
+  telegramMessageId    String                  @map("telegram_message_id")
+  rawText              String
+  parsedOrigin         String?                 @map("parsed_origin")
+  parsedDestination    String?                 @map("parsed_destination")
+  parsedCargoType      String?                 @map("parsed_cargo_type")
+  parsedWeightQuintals Decimal?                @map("parsed_weight_quintals") @db.Decimal(8, 2)
+  parsedRateEtb        Decimal?                @map("parsed_rate_etb") @db.Decimal(10, 2)
+  parsedRateType       String?                 @map("parsed_rate_type")
+  parsedTruckSize      String?                 @map("parsed_truck_size")
+  parsedPhone          String?                 @map("parsed_phone")
+  parseConfidence      Decimal                 @default(0.0) @map("parse_confidence") @db.Decimal(4, 3)
+  parseStatus          String                  @default("PENDING") @map("parse_status")
+  isConverted          Boolean                 @default(false) @map("is_converted")
+  convertedToLoadId    String?                 @map("converted_to_load_id") @db.VarChar(26)
+  convertedAt          DateTime?               @map("converted_at")
+  postedAt             DateTime                @map("posted_at")
+  harvestedAt          DateTime                @default(now()) @map("harvested_at")
+  createdAt            DateTime                @default(now()) @map("created_at")
+  channel              TelegramCorridorChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([channelId, telegramMessageId])
+  @@index([channelId, postedAt])
+  @@index([parseStatus, harvestedAt])
+  @@index([isConverted])
+  @@map("telegram_load_posts")
+}
+
+model FuelLog {
+  id                String    @id @default(cuid()) @db.VarChar(26)
+  truckId           String    @db.VarChar(26)
+  driverId          String?   @db.VarChar(26)
+  tripId            String?   @db.VarChar(26)
+  stationName       String?
+  stationLat        Decimal?  @db.Decimal(10, 6)
+  stationLng        Decimal?  @db.Decimal(10, 6)
+  litersAdded       Decimal   @db.Decimal(8, 2)
+  pricePerLiterEtb  Decimal?  @db.Decimal(6, 2)
+  totalCostEtb      Decimal?  @db.Decimal(10, 2)
+  odometerKm        Decimal?  @db.Decimal(10, 2)
+  receiptPhotoUrl   String?
+  isAnomalous       Boolean   @default(false)
+  anomalyFlaggedAt  DateTime?
+  anomalyNotes      String?
+  loggedByDriverApp Boolean   @default(true)
+  filledAt          DateTime
+  createdAt         DateTime  @default(now())
+
+  @@index([truckId, filledAt])
+  @@index([driverId, filledAt])
+  @@index([isAnomalous])
+  @@map("fuel_logs")
+}
+
+model FuelEfficiencyProfile {
+  id                 String    @id @default(cuid()) @db.VarChar(26)
+  truckId            String    @unique @db.VarChar(26)
+  expectedKmPerLiter Decimal   @db.Decimal(5, 2)
+  actualKmPerLiter   Decimal?  @db.Decimal(5, 2)
+  lastCalculatedAt   DateTime?
+  totalFuelLogsCount Int       @default(0)
+  totalLitersFilled  Decimal   @default(0) @db.Decimal(10, 2)
+  totalKmTracked     Decimal   @default(0) @db.Decimal(12, 2)
+  anomalyCount       Int       @default(0)
+  lastAnomalyAt      DateTime?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([truckId])
+  @@map("fuel_efficiency_profiles")
+}
+
+model EarningsComparison {
+  id                     String   @id @default(cuid()) @db.VarChar(26)
+  driverId               String   @db.VarChar(26)
+  periodStartDate        DateTime
+  periodEndDate          DateTime
+  offPlatformTripCount   Int      @default(0)
+  offPlatformEarningsEtb Decimal  @default(0) @db.Decimal(12, 2)
+  onPlatformTripCount    Int      @default(0)
+  onPlatformEarningsEtb  Decimal  @default(0) @db.Decimal(12, 2)
+  platformEquivalentEtb  Decimal  @default(0) @db.Decimal(12, 2)
+  totalGapEtb            Decimal  @default(0) @db.Decimal(12, 2)
+  conversionMessage      String?
+  calculatedAt           DateTime @default(now())
+
+  @@index([driverId, periodStartDate])
+  @@map("earnings_comparisons")
+}
+
+model DocumentExpiryAlert {
+  id                  String    @id @default(cuid()) @db.VarChar(26)
+  entityType          String
+  entityId            String    @db.VarChar(26)
+  ownerId             String    @db.VarChar(26)
+  documentType        String
+  expiryDate          DateTime
+  alertStatus         String    @default("UPCOMING")
+  lastAlertSentAt     DateTime?
+  alertCount          Int       @default(0)
+  resolvedAt          DateTime?
+  resolvedDocumentUrl String?
+  notes               String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@unique([entityType, entityId, documentType])
+  @@index([alertStatus, expiryDate])
+  @@index([ownerId, alertStatus])
+  @@map("document_expiry_alerts")
+}
+
+model OrdererReliabilityScore {
+  id                              String    @id @default(cuid()) @db.VarChar(26)
+  userId                          String    @unique @db.VarChar(26)
+  totalLoadsPosted                Int       @default(0)
+  totalLoadsCompleted             Int       @default(0)
+  totalLoadsCancelled             Int       @default(0)
+  totalLoadsAbandoned             Int       @default(0)
+  completionRate                  Decimal   @default(1.0) @db.Decimal(4, 3)
+  cancellationRate                Decimal   @default(0.0) @db.Decimal(4, 3)
+  noShowRate                      Decimal   @default(0.0) @db.Decimal(4, 3)
+  averageLoadReadinessMinutes     Int       @default(0)
+  averagePaymentDaysAfterDelivery Int       @default(0)
+  reliabilityScore                Decimal   @default(100.0) @db.Decimal(5, 2)
+  reliabilityTier                 String    @default("NEW")
+  lastCalculatedAt                DateTime?
+  lastOrderAt                     DateTime?
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
+
+  @@index([reliabilityTier])
+  @@index([reliabilityScore])
+  @@map("orderer_reliability_scores")
+}
+
+model DriverOrdererRating {
+  id                 String   @id @default(cuid()) @db.VarChar(26)
+  tripId             String   @db.VarChar(26)
+  raterId            String   @db.VarChar(26)
+  raterRole          String
+  rateeId            String   @db.VarChar(26)
+  rateeRole          String
+  overallScore       Int
+  punctualityScore   Int?
+  communicationScore Int?
+  conditionScore     Int?
+  paymentScore       Int?
+  comment            String?
+  isVisible          Boolean  @default(true)
+  createdAt          DateTime @default(now())
+
+  @@unique([tripId, raterId, rateeId])
+  @@index([rateeId, createdAt])
+  @@index([tripId])
+  @@map("driver_orderer_ratings")
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// CORRIDOR BALANCING SYSTEM
+// ═══════════════════════════════════════════════════════════════════
+
+model CorridorBalancingEvent {
+  id                      String    @id @default(cuid()) @db.VarChar(26)
+
+  corridorId              String    @db.VarChar(26)
+  // The corridor experiencing the imbalance
+
+  detectedAt              DateTime  @default(now())
+  // When the optimizer detected this imbalance
+
+  imbalanceDirection      String
+  // Values from CorridorImbalanceDirection:
+  // OUTBOUND_SURPLUS | INBOUND_SURPLUS | BILATERAL_DEFICIT | BILATERAL_SURPLUS
+
+  outboundAvailableTrucks Int       @default(0)
+  // Number of trucks available or heading outbound
+
+  inboundAvailableTrucks  Int       @default(0)
+  // Number of trucks available or heading inbound
+
+  outboundPendingLoads    Int       @default(0)
+  // Number of loads waiting for trucks, outbound direction
+
+  inboundPendingLoads     Int       @default(0)
+  // Number of loads waiting for trucks, inbound direction
+
+  imbalanceScore          Decimal   @db.Decimal(5, 2)
+  // Composite score 0-100 measuring severity of imbalance
+  // 0 = perfectly balanced, 100 = severe imbalance
+
+  interventionType        String?
+  // Values from BalancingInterventionType enum
+  // Null if imbalance was detected but no intervention taken
+
+  interventionAppliedAt   DateTime?
+
+  priceIncentivePct       Decimal?  @db.Decimal(5, 2)
+  // If interventionType = PRICE_INCENTIVE:
+  // % increase applied to underserved direction rate
+
+  driversNotifiedCount    Int       @default(0)
+  // If DRIVER_NOTIFICATION or BACKHAUL_NUDGE:
+  // How many drivers received the notification
+
+  loadsConsolidated       Int       @default(0)
+  // If LOAD_CONSOLIDATION: how many loads were consolidated
+
+  resolvedAt              DateTime?
+  // When the imbalance was resolved (supply/demand returned to balance)
+
+  resolutionNotes         String?
+  // What ultimately resolved the imbalance
+
+  interventionEffective   Boolean?
+  // True = intervention measurably helped resolve the imbalance
+  // False = intervention did not help (used for strategy learning)
+  // Null = too early to determine
+
+  @@index([corridorId, detectedAt])
+  @@index([imbalanceDirection, detectedAt])
+  @@index([interventionType])
+  @@map("corridor_balancing_events")
+}
+
+model FuelStationReport {
+  id                 String   @id @default(cuid()) @db.VarChar(26)
+  stationName        String   @map("station_name")
+  lat                Decimal  @db.Decimal(10, 6)
+  lng                Decimal  @db.Decimal(10, 6)
+  corridorId         String?  @map("corridor_id") @db.VarChar(26)
+  zoneId             String?  @map("zone_id") @db.VarChar(26)
+  hasFuel            Boolean  @map("has_fuel")
+  isLimited          Boolean  @default(false) @map("is_limited")
+  queueOverOneHour   Boolean  @default(false) @map("queue_over_one_hour")
+  dieselPriceEtb     Decimal? @map("diesel_price_etb") @db.Decimal(6, 2)
+  reportedByUserId   String   @map("reported_by_user_id") @db.VarChar(26)
+  expiresAt          DateTime @map("expires_at")
+  verificationCount  Int      @default(0) @map("verification_count")
+  bonusPaid          Boolean  @default(false) @map("bonus_paid")
+  bonusPaidEtb       Int      @default(0) @map("bonus_paid_etb")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@index([corridorId, expiresAt])
+  @@index([lat, lng])
+  @@index([hasFuel, expiresAt])
+  @@map("fuel_station_reports")
+}
+
+model PayoutRecord {
+  id                   String   @id @default(cuid()) @db.VarChar(26)
+  recipientUserId      String   @map("recipient_user_id") @db.VarChar(26)
+  tripId               String?  @map("trip_id") @db.VarChar(26)
+  payoutType           String   @map("payout_type")
+  amountEtb            Decimal  @map("amount_etb") @db.Decimal(12, 2)
+  paymentRail          String   @map("payment_rail")
+  status               String   @default("PENDING") @map("status")
+  slaTargetMinutes     Int      @map("sla_target_minutes")
+  slaBreached          Boolean  @default(false) @map("sla_breached")
+  initiatedBySystemJob Boolean  @default(false) @map("initiated_by_system_job")
+  processedAt          DateTime? @map("processed_at")
+  failureReason        String?  @map("failure_reason")
+  initiatedAt          DateTime? @map("initiated_at")
+  completedAt          DateTime? @map("completed_at")
+  failedAt             DateTime? @map("failed_at")
+  accountNumber        String?  @map("account_number")
+  providerReference    String?  @map("provider_reference")
+  retryCount           Int       @default(0) @map("retry_count")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@index([recipientUserId, status])
+  @@index([payoutType, status])
+  @@index([createdAt])
+  @@map("payout_records")
+}
+
+model TrustScoreEvent {
+  id                String    @id @db.VarChar(26)
+  driverId          String    @map("driver_id")
+  previousScore     Decimal   @map("previous_score") @db.Decimal(5, 2)
+  newScore          Decimal   @map("new_score") @db.Decimal(5, 2)
+  previousTier      Int       @map("previous_tier")
+  newTier           Int       @map("new_tier")
+  reason            String?   @map("reason")
+  tripId            String?   @map("trip_id")
+  incidentId        String?   @map("incident_id")
+  scoreDelta        Decimal?  @map("score_delta") @db.Decimal(5, 2)
+  metadata          Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@map("trust_score_events")
+}
+
+model TrustTierMilestone {
+  id                String    @id @db.VarChar(26)
+  driverId          String    @map("driver_id")
+  tier              Int
+  achievedAt        DateTime  @default(now()) @map("achieved_at")
+  bonusAmountEtb    Int?      @map("bonus_amount_etb")
+  physicalKitSent   Boolean   @default(false) @map("physical_kit_sent")
+  notificationSent  Boolean   @default(false) @map("notification_sent")
+  metadata          Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@map("trust_tier_milestones")
+}
+
+model MarketplaceThresholdSnapshot {
+  id                        String    @id @db.VarChar(26)
+  strategyVersionId         String    @map("strategy_version_id")
+  effectiveDate             DateTime  @map("effective_date")
+  floorPricePerKmPerQuintal Decimal   @map("floor_price_per_km_per_quintal") @db.Decimal(8, 2)
+  urbanDeviationThresholdKm Decimal   @map("urban_deviation_threshold_km") @db.Decimal(6, 2)
+  intercityDeviationThresholdKm Decimal @map("intercity_deviation_threshold_km") @db.Decimal(6, 2)
+  metadata                  Json?
+  createdAt                 DateTime  @default(now()) @map("created_at")
+
+  @@map("marketplace_threshold_snapshots")
+}
+
+model SafeParkingLocation {
+  id            String    @id @db.VarChar(26)
+  name          String
+  lat           Decimal   @db.Decimal(10, 8)
+  lng           Decimal   @db.Decimal(11, 8)
+  corridorId    String?   @map("corridor_id")
+  zoneId        String?   @map("zone_id")
+  type          String    @default("PUBLIC")  // PUBLIC, PRIVATE, PREMIUM
+  capacity      Int       @default(0)
+  bookingPrice  Decimal   @default(0) @db.Decimal(8, 2)  // In ETB
+  amenities     String[]  @default([])  // WiFi, Restroom, Security, etc.
+  isActive      Boolean   @default(true) @map("is_active")
+  metadata      Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("safe_parking_locations")
+}
+
+model UserPaymentPreference {
+  id                    String    @id @db.VarChar(26)
+  userId                String    @unique
+  primaryRail           String    // TELEBIRR, CBE_BIRR, AMOLE, HELLOCASH, AWASH_WALLET, BANK_TRANSFER
+  secondaryRail         String?
+  tertiaryRail          String?
+  autoConvertTo         String?   @map("auto_convert_to")  // Auto convert winnings to this rail
+  autoPayoutEnabled     Boolean   @default(true) @map("auto_payout_enabled")
+  payoutThresholdEtb    Decimal   @default(500) @db.Decimal(10, 2) @map("payout_threshold_etb")
+  metadata              Json?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+
+  @@map("user_payment_preferences")
+}
+
+model DisputeResolutionLog {
+  id                String    @id @db.VarChar(26)
+  disputeId         String    @map("dispute_id")
+  disputeType       String    @map("dispute_type")  // PAYMENT, DELIVERY, QUALITY, etc.
+  initiatorId       String    @map("initiator_id")
+  responderId       String    @map("responder_id")
+  resolution        String    // SETTLED, ESCALATED, ARBITRATED, CLOSED
+  resolutionReason  String?   @map("resolution_reason")
+  compensationEtb   Decimal?  @db.Decimal(10, 2) @map("compensation_etb")
+  resolutionAgentId String?   @map("resolution_agent_id")
+  resolvedAt        DateTime? @map("resolved_at")
+  metadata          Json?
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  @@map("dispute_resolution_logs")
+}
+
+model DigitalWaybill {
+  id                  String    @id @default(cuid()) @db.VarChar(26)
+  waybillNumber       String    @unique
+  // Format: WB-{YYYYMMDD}-{sequential 6-digit zero-padded number}
+  // Example: WB-20260315-000001
+
+  tripId              String    @unique @db.VarChar(26)
+  // One waybill per trip
+
+  loadId              String    @db.VarChar(26)
+
+  // Shipper details
+  shipperName         String
+  shipperPhone        String?
+  shipperAddress      String?
+
+  // Consignee details
+  consigneeName       String
+  consigneePhone      String?
+  consigneeAddress    String?
+
+  // Route
+  originName          String
+  destinationName     String
+
+  // Cargo
+  cargoDescription    String
+  declaredWeightKg    Decimal   @db.Decimal(10, 2)
+  declaredValueEtb    Decimal?  @db.Decimal(12, 2)
+  specialInstructions String?
+  // e.g. "HAZARDOUS MATERIAL", "LIVESTOCK - HANDLE WITH CARE", "TIME CRITICAL - KHAT"
+
+  // Vehicle and driver
+  plateNumber         String
+  driverFullName      String
+  driverLicenseNumber String?
+  driverPhone         String
+
+  // QR code
+  qrCodeData          String
+  // Contains: JSON { waybillNumber, tripId, verifyUrl }
+  verifyUrl           String
+  // Public URL: https://isuzet.com/verify/{waybillNumber}
+
+  // Amharic versions of key fields
+  cargoDescriptionAmharic String?
+  specialInstructionsAmharic String?
+
+  issuedAt            DateTime  @default(now())
+  isActive            Boolean   @default(true)
+  // False if waybill is voided (e.g., trip was cancelled after waybill generated)
+
+  voidedAt            DateTime?
+  voidReason          String?
+
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@index([tripId])
+  @@index([waybillNumber])
+  @@index([loadId])
+  @@map("digital_waybills")
+}
+
+model LoadOfferRecord {
+  id                String    @id @default(cuid()) @db.VarChar(26)
+  loadId            String    @db.VarChar(26)
+  driverId          String    @db.VarChar(26)
+  truckId           String    @db.VarChar(26)
+
+  offeredAt         DateTime  @default(now())
+  expiresAt         DateTime
+  // offeredAt + acceptance window
+
+  status            String    @default("PENDING")
+  // PENDING | ACCEPTED | DECLINED | EXPIRED | WITHDRAWN
+
+  respondedAt       DateTime?
+  declineReason     String?
+  // Optional: why driver declined (price too low, too far, wrong cargo, etc.)
+
+  notificationSentApp     Boolean @default(false)
+  notificationSentTelegram Boolean @default(false)
+  notificationSentSms     Boolean @default(false)
+
+  offerAmountEtb    Decimal   @db.Decimal(12, 2)
+  // Earnings offered to driver at time of offer (locked in)
+
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([loadId, status])
+  @@index([driverId, offeredAt])
+  @@index([status, expiresAt])
+  @@map("load_offer_records")
+}
+
+enum Role {
+  FLEET_OWNER
+  FLEET_MANAGER
+  DRIVER
+  ORDERER
+  OPS_ADMIN
+  OPS_VIEWER
+  FINANCE_OPS
+  SUPER_ADMIN
+  SYSTEM
+  FIELD_AGENT
+  BROKER
+}
+
+enum CorridorType {
+  INTERCITY
+  INTRACITY
+  REGIONAL
+}
+
+enum TruckBrand {
+  ISUZU
+  TATA
+  SINO
+  FAW
+  FOTON
+  HINO
+  MERCEDES
+  ASHOK_LEYLAND
+  OTHER
+}
+
+enum FuelType {
+  DIESEL
+  PETROL
+}
+
+enum BackhaulStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum ConsolidatedLoadStatus {
+  BUILDING
+  COLLECTING
+  READY
+  ASSIGNED
+  IN_TRANSIT
+  DELIVERED
+  CANCELLED
+}
+
+enum SubLoadStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  DELIVERED
+}
+
+enum AggregatorType {
+  FIELD_AGENT
+  CONSOLIDATION_AGENT
+  ERP_SYSTEM
+  SELF_ORGANIZED
+}
+
+enum ConsolidationShortfallPolicy {
+  PLATFORM_ABSORB
+  DISTRIBUTE
+  AGENT_BEARS
+}
+
+enum BrokerSuggestionStatus {
+  PENDING
+  FLEET_ACCEPTED
+  ORDERER_ACCEPTED
+  BOTH_ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum DriverEarningType {
+  ON_TIME_BONUS
+  CHECKPOINT_BONUS
+  FUEL_REPORT_BONUS
+  BACKHAUL_BONUS
+  PERFECT_WEEK
+}
+
+enum DriverEarningStatus {
+  PENDING
+  PAID
+}
+
+enum LiquidityIncentiveType {
+  GUARANTEED_MINIMUM
+  FUEL_SUBSIDY
+  BROKER_BONUS
+  DRIVER_BONUS
+}
+
+enum VoucherStatus {
+  ACTIVE
+  REDEEMED
+  EXPIRED
+  CANCELLED
+}
+
+enum RecoveryResourceType {
+  MECHANIC
+  TOW_TRUCK
+  REPLACEMENT_TRUCK
+  FUEL_DELIVERY
+}
+
+enum TripEventType {
+  PICKUP_CONFIRMED
+  CHECKPOINT_LOGGED
+  DELIVERY_CONFIRMED
+  CARGO_CONDITION_RECORDED
+  SOS_TRIGGERED
+  INCIDENT_REPORTED
+}
+
+enum TripEventReconciliationStatus {
+  ACCEPTED
+  REJECTED
+  REQUIRES_REVIEW
+}
+
+enum ReferralStatus {
+  PENDING
+  QUALIFIED
+  REWARDED
+}
+
+enum ShiftDay {
+  MON
+  TUE
+  WED
+  THU
+  FRI
+  SAT
+  SUN
+}
+
+enum FuelPriceSource {
+  MANUAL
+  DRIVER_REPORT
+  API
+}
+
+enum AgentType {
+  FIELD_AGENT
+  CONSOLIDATION_AGENT
+}
+
+enum TripStopStatus {
+  PENDING
+  ARRIVED
+  COMPLETED
+  SKIPPED
+}
+
+enum RoadAlertType {
+  POLICE_ACTIVE
+  WEIGHBRIDGE_STRICT
+  ROAD_DAMAGE
+  FLOODING
+  FUEL_EMPTY
+  ACCIDENT
+  ROAD_CLOSED
+  CHECKPOINT_CLOSED
+}
+
+enum DirectBookingStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  BLOCKED
+}
+
+enum RouteContractFrequency {
+  DAILY
+  WEEKLY
+  BIWEEKLY
+  MONTHLY
+}
+
+enum SecurityZoneStatus {
+  NORMAL
+  ELEVATED
+  RESTRICTED
+  CLOSED
+}
+
+enum RelayStatus {
+  PENDING
+  ACTIVE
+  HANDED_OFF
+  COMPLETED
+}
+
+enum MaintenanceType {
+  OIL_CHANGE
+  TYRE_ROTATION
+  BRAKE_SERVICE
+  BRAKE_CHECK
+  FULL_SERVICE
+  ENGINE_SERVICE
+  ENGINE_REPAIR
+  BODY_REPAIR
+  REPAIR
+  OTHER
+}
+
+enum CargoOfferStatus {
+  OPEN
+  CONSOLIDATED
+  CANCELLED
+  EXPIRED
+}
+
+enum LoanStatus {
+  ACTIVE
+  REPAID
+  OVERDUE
+  DEFAULTED
+  WRITTEN_OFF
+}
+
+enum ReferralType {
+  DRIVER_TO_DRIVER
+  FLEET_TO_FLEET
+  AGENT_TO_FLEET
+}
+
+enum BlockPreferenceType {
+  PREFERRED
+  BLOCKED
+}

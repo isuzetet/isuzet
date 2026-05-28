@@ -1,0 +1,361 @@
+import { prisma, generateId } from '@ruit/shared-db';
+
+// Valid states
+export type IncidentStatus =
+  | 'OPEN'
+  | 'UNDER_INVESTIGATION'
+  | 'EVIDENCE_COLLECTION'
+  | 'AWAITING_RESOLUTION'
+  | 'RESOLVED'
+  | 'ESCALATED'
+  | 'CLOSED';
+
+// Valid transitions map: key = current state, value = allowed next states
+const VALID_TRANSITIONS: Record<IncidentStatus, IncidentStatus[]> = {
+  OPEN: ['UNDER_INVESTIGATION', 'ESCALATED'],
+  UNDER_INVESTIGATION: ['EVIDENCE_COLLECTION', 'AWAITING_RESOLUTION'],
+  EVIDENCE_COLLECTION: ['AWAITING_RESOLUTION'],
+  AWAITING_RESOLUTION: ['RESOLVED', 'ESCALATED'],
+  ESCALATED: ['AWAITING_RESOLUTION', 'CLOSED'],
+  RESOLVED: ['CLOSED'],
+  CLOSED: [], // terminal state
+};
+
+// Roles allowed to trigger each transition
+const TRANSITION_ROLES: Record<string, string[]> = {
+  'OPEN->UNDER_INVESTIGATION': ['OPS_ADMIN', 'SUPER_ADMIN'],
+  'OPEN->ESCALATED': ['SYSTEM'],
+  'UNDER_INVESTIGATION->EVIDENCE_COLLECTION': ['OPS_ADMIN', 'SUPER_ADMIN'],
+  'UNDER_INVESTIGATION->AWAITING_RESOLUTION': ['OPS_ADMIN', 'SUPER_ADMIN', 'SYSTEM'],
+  'EVIDENCE_COLLECTION->AWAITING_RESOLUTION': ['SYSTEM', 'OPS_ADMIN', 'SUPER_ADMIN'],
+  'AWAITING_RESOLUTION->RESOLVED': ['OPS_ADMIN', 'SUPER_ADMIN'],
+  'AWAITING_RESOLUTION->ESCALATED': ['SYSTEM'],
+  'ESCALATED->AWAITING_RESOLUTION': ['OPS_ADMIN', 'SUPER_ADMIN'],
+  'ESCALATED->CLOSED': ['SUPER_ADMIN'],
+  'RESOLVED->CLOSED': ['SYSTEM'],
+};
+
+export async function transitionIncident(params: {
+  incidentId: string;
+  toStatus: IncidentStatus;
+  actorId: string;
+  actorRole: string;
+  resolution_notes?: string;
+  liability_party?: string;
+  liability_breakdown?: Record<string, number>;
+  penalty_etb?: number;
+  compensation_etb?: number;
+  escalation_reason?: string;
+}): Promise<void> {
+  const incident = await prisma.incident.findUnique({
+    where: { id: params.incidentId },
+  });
+
+  if (!incident) throw new Error('ENTITY_NOT_FOUND');
+
+  const currentStatus = incident.status as IncidentStatus;
+  const allowed = VALID_TRANSITIONS[currentStatus] ?? [];
+
+  if (!allowed.includes(params.toStatus)) {
+    throw new Error(`INVALID_STATE_TRANSITION: ${currentStatus} -> ${params.toStatus}`);
+  }
+
+  const transitionKey = `${currentStatus}->${params.toStatus}`;
+  const allowedRoles = TRANSITION_ROLES[transitionKey] ?? [];
+
+  if (!allowedRoles.includes(params.actorRole)) {
+    throw new Error(
+      `INSUFFICIENT_TRUST_TIER: role ${params.actorRole} cannot perform ${transitionKey}`
+    );
+  }
+
+  // Build update data
+  const updateData: Record<string, unknown> = {
+    status: params.toStatus,
+    updated_at: new Date(),
+  };
+
+  if (params.toStatus === 'UNDER_INVESTIGATION') {
+    updateData.assigned_to = params.actorId;
+    updateData.evidence_deadline = new Date(Date.now() + 72 * 60 * 60 * 1000);
+  }
+
+  if (params.toStatus === 'RESOLVED') {
+    updateData.resolved_at = new Date();
+    updateData.resolution_notes = params.resolution_notes;
+    updateData.liability_party = params.liability_party;
+    updateData.liability_breakdown = params.liability_breakdown ?? {};
+    updateData.penalty_etb = params.penalty_etb ?? 0;
+    updateData.compensation_etb = params.compensation_etb ?? 0;
+  }
+
+  if (params.toStatus === 'ESCALATED') {
+    updateData.escalation_reason = params.escalation_reason;
+  }
+
+  await prisma.incident.update({
+    where: { id: params.incidentId },
+    data: updateData,
+  });
+
+  // Emit state transition event
+  await prisma.event.create({
+    data: {
+      id: generateId('evt'),
+      event_type:
+        params.toStatus === 'RESOLVED'
+          ? 'INCIDENT_RESOLVED'
+          : params.toStatus === 'ESCALATED'
+          ? 'DISPUTE_ESCALATED'
+          : 'INCIDENT_OPENED',
+      aggregate_id: params.incidentId,
+      aggregate_type: 'INCIDENT',
+      actor_id: params.actorId,
+      actor_role: params.actorRole,
+      strategy_version_id: await getActiveStrategyId(),
+      payload: {
+        from_status: currentStatus,
+        to_status: params.toStatus,
+        liability_party: params.liability_party,
+        penalty_etb: params.penalty_etb,
+        compensation_etb: params.compensation_etb,
+      },
+      metadata: {
+        source: 'API',
+        is_manual_override: false,
+      },
+    },
+  });
+
+  // If RESOLVED: check if escrow should be released
+  // Escrow release is handled by engine-liquidity listening to INCIDENT_RESOLVED
+  // Engine 6 only manages state. Engine 4 manages money.
+}
+
+export async function openIncident(params: {
+  trip_id: string;
+  incident_type: string;
+  reported_by: string;
+  reporter_role: string;
+  severity: string;
+  description: string;
+  geo_lat?: number;
+  geo_lng?: number;
+}): Promise<string> {
+  const incident = await prisma.incident.create({
+    data: {
+      id: generateId('inc'),
+      trip_id: params.trip_id,
+      incident_type: params.incident_type,
+      reported_by: params.reported_by,
+      reporter_role: params.reporter_role,
+      status: 'OPEN',
+      severity: params.severity,
+      description: params.description,
+      geo_lat: params.geo_lat ?? null,
+      geo_lng: params.geo_lng ?? null,
+      penalty_etb: 0,
+      compensation_etb: 0,
+      created_at: new Date(),
+    },
+  });
+
+  await prisma.event.create({
+    data: {
+      id: generateId('evt'),
+      event_type: 'INCIDENT_OPENED',
+      aggregate_id: incident.id,
+      aggregate_type: 'INCIDENT',
+      actor_id: params.reported_by,
+      actor_role: params.reporter_role,
+      strategy_version_id: await getActiveStrategyId(),
+      payload: {
+        incident_type: params.incident_type,
+        severity: params.severity,
+        trip_id: params.trip_id,
+      },
+      metadata: {
+        source: 'API',
+        is_manual_override: false,
+      },
+    },
+  });
+
+  // Schedule auto-escalation job after 24h if not assigned (SLA from Amendment 2 C4)
+  // Done via BullMQ delayed job in the worker file
+
+  return incident.id;
+}
+
+export async function submitEvidence(params: {
+  incident_id: string;
+  submitted_by: string;
+  submitter_role: string;
+  evidence_type: string;
+  s3_key: string;
+  s3_bucket: string;
+  description?: string;
+}): Promise<void> {
+  await prisma.incidentEvidence.create({
+    data: {
+      id: generateId('iev'),
+      incident_id: params.incident_id,
+      submitted_by: params.submitted_by,
+      submitter_role: params.submitter_role,
+      evidence_type: params.evidence_type,
+      s3_key: params.s3_key,
+      s3_bucket: params.s3_bucket,
+      description: params.description ?? null,
+      created_at: new Date(),
+    },
+  });
+
+  await prisma.event.create({
+    data: {
+      id: generateId('evt'),
+      event_type: 'EVIDENCE_SUBMITTED',
+      aggregate_id: params.incident_id,
+      aggregate_type: 'INCIDENT',
+      actor_id: params.submitted_by,
+      actor_role: params.submitter_role,
+      strategy_version_id: await getActiveStrategyId(),
+      payload: {
+        evidence_type: params.evidence_type,
+        s3_key: params.s3_key,
+      },
+      metadata: {
+        source: 'API',
+        is_manual_override: false,
+      },
+    },
+  });
+}
+
+async function getActiveStrategyId(): Promise<string> {
+  const sv = await prisma.strategyVersion.findFirst({
+    where: { is_active: true },
+  });
+  return sv?.id ?? 'sv_phase1_growth';
+}
+
+// Get incidents for a user (driver/orderer) based on trip relationship
+export async function getUserIncidents(
+  userId: string,
+  role: string,
+  filters: {
+    status?: string;
+    severity?: string;
+    page?: number;
+    limit?: number;
+  }
+): Promise<{ items: any[]; total: number; page: number; pageSize: number }> {
+  const page = filters.page ?? 1;
+  const pageSize = filters.limit ?? 20;
+  const skip = (page - 1) * pageSize;
+
+  let where: any = {};
+
+  if (filters.status) {
+    where.status = filters.status;
+  }
+
+  if (filters.severity) {
+    where.severity = filters.severity;
+  }
+
+  // For driver/orderer, only show incidents related to their trips
+  if (role === 'DRIVER') {
+    where = {
+      ...where,
+      trip: {
+        driver_id: userId,
+      },
+    };
+  } else if (role === 'ORDERER') {
+    where = {
+      ...where,
+      trip: {
+        orderer_id: userId,
+      },
+    };
+  }
+
+  const [items, total] = await Promise.all([
+    prisma.incident.findMany({
+      where,
+      include: {
+        incident_evidence: true,
+        trip: {
+          select: {
+            id: true,
+            origin_city: true,
+            destination_city: true,
+            driver_id: true,
+            orderer_id: true,
+          },
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      skip,
+      take: pageSize,
+    }),
+    prisma.incident.count({ where }),
+  ]);
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+  };
+}
+
+// Get disputes for OPS dashboard with SLA breach flags
+export async function getDisputesForOps(): Promise<any[]> {
+  // SLA thresholds from Amendment 2 C4
+  const SLA_THRESHOLDS: Record<string, number> = {
+    LOW: 5,
+    MEDIUM: 3,
+    HIGH: 1,
+    CRITICAL: 0,
+  };
+
+  const incidents = await prisma.incident.findMany({
+    where: {
+      status: {
+        in: ['OPEN', 'UNDER_INVESTIGATION', 'AWAITING_RESOLUTION'],
+      },
+    },
+    include: {
+      trip: {
+        select: {
+          id: true,
+          origin_city: true,
+          destination_city: true,
+          driver_id: true,
+          orderer_id: true,
+          escrow_held_etb: true,
+        },
+      },
+      incident_evidence: true,
+    },
+    orderBy: { created_at: 'desc' },
+  });
+
+  return incidents.map((incident: any) => {
+    const createdAt = new Date(incident.created_at);
+    const now = new Date();
+    const daysOpen = Math.floor(
+      (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24)
+    );
+    const slaThreshold = SLA_THRESHOLDS[incident.severity] ?? 5;
+    const slaBreached = daysOpen > slaThreshold;
+
+    return {
+      ...incident,
+      days_open: daysOpen,
+      sla_threshold_days: slaThreshold,
+      sla_breached: slaBreached,
+    };
+  });
+}

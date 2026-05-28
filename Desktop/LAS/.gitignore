@@ -1,0 +1,33 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+**/.env
+**/.env.local
+
+# JWT keys
+**/keys/*.pem
+**/keys/*.key
+
+# Firebase service accounts
+**/*firebase*adminsdk*.json
+**/firebase-service-account.json
+**/google-services.json
+**/GoogleService-Info.plist
+
+# Node
+**/node_modules/
+**/dist/
+**/.pnpm-store/
+
+# Build artifacts
+**/build/
+**/.dart_tool/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
