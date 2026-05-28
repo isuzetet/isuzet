@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "ignoreDeprecations": "6.0",
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitReturns": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+
+    "paths": {
+      "@ruit/shared-types": ["./packages/shared-types/src/index.ts"],
+      "@ruit/shared-utils": ["./packages/shared-utils/src/index.ts"],
+      "@ruit/shared-db":    ["./packages/shared-db/src/index.ts"],
+      "@ruit/shared-queue": ["./packages/shared-queue/src/index.ts"],
+      "@ruit/shared-auth":  ["./packages/shared-auth/src/index.ts"]
+    }
+  },
+  "exclude": ["node_modules", "dist"]
+}
