@@ -1,7 +1,19 @@
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
+import { cpuCount } from 'os';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined; };
+
+/**
+ * Calculate optimal connection pool size based on CPU count
+ * Formula: (CPU_COUNT * 2) + 3 (recommended for Node.js)
+ * Min: 10, Max: 100
+ */
+function getOptimalPoolSize(): number {
+  const cpuCount = require('os').cpus().length;
+  const calculated = (cpuCount * 2) + 3;
+  return Math.max(10, Math.min(100, calculated));
+}
 
 export const prisma = globalForPrisma.prisma ?? new PrismaClient({
   log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],

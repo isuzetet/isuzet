@@ -98,13 +98,21 @@ export function createNotificationWorker(): Worker {
         }
 
         if (endpoint) {
-          const response = await fetch(endpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
-          if (!response.ok) {
+          const { fetchWithTimeout } = await import('@ruit/shared-utils');
+          const response = await fetchWithTimeout(
+            endpoint,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+            5000,
+            'NOTIFICATION'
+          );
+          if (response && !response.ok) {
             console.error(`Notification service error: ${response.status}`);
+          } else if (!response) {
+            console.error(`Notification service timeout to ${endpoint}`);
           }
         }
 
@@ -115,20 +123,26 @@ export function createNotificationWorker(): Worker {
 
         for (const webhook of webhooks) {
           try {
-            await fetch(webhook.url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-RUIT-Event': templateId,
-                ...(webhook.secret ? { 'X-RUIT-Secret': webhook.secret } : {}),
+            const { fetchWithTimeout } = await import('@ruit/shared-utils');
+            await fetchWithTimeout(
+              webhook.url,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-RUIT-Event': templateId,
+                  ...(webhook.secret ? { 'X-RUIT-Secret': webhook.secret } : {}),
+                },
+                body: JSON.stringify({
+                  templateId,
+                  templateData,
+                  userId,
+                  timestamp: new Date().toISOString(),
+                }),
               },
-              body: JSON.stringify({
-                templateId,
-                templateData,
-                userId,
-                timestamp: new Date().toISOString(),
-              }),
-            });
+              5000,
+              'WEBHOOK'
+            );
           } catch (err) {
             // Webhook failures are best-effort
             console.error(`Webhook delivery failed for ${webhook.id}:`, err);

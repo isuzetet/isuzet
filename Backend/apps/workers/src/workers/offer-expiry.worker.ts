@@ -92,16 +92,22 @@ export async function runOfferExpiryCheck(): Promise<{
 
           // Notify ops via notification engine
           try {
+            const { fetchWithTimeout } = await import('@ruit/shared-utils');
             const notificationEngineUrl = process.env.NOTIFICATION_ENGINE_URL || 'http://localhost:3013';
-            await fetch(`${notificationEngineUrl}/internal/sms`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                phone: process.env.OPS_ALERT_PHONE || '+251911000000',
-                message: `Load ${load.id} requires manual dispatch intervention. All offer rounds exhausted.`,
-                template: null
-              })
-            });
+            await fetchWithTimeout(
+              `${notificationEngineUrl}/internal/sms`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  phone: process.env.OPS_ALERT_PHONE || '+251911000000',
+                  message: `Load ${load.id} requires manual dispatch intervention. All offer rounds exhausted.`,
+                  template: null
+                })
+              },
+              5000,
+              'OFFER_EXPIRY'
+            );
           } catch (notifyErr) {
             console.error('Failed to notify ops of escalation:', notifyErr);
           }

@@ -64,3 +64,52 @@ export function normalizePhone(phone: string): string {
 
 // Re-export all cache utilities from cache.ts
 export { cached, invalidateCache, invalidateCachePattern, getCacheWithTtl, setCache, hasCache, getRedisClient } from './cache.js';
+
+// Re-export correlation ID middleware for distributed tracing
+export { 
+  getCorrelationId, 
+  correlationIdMiddleware, 
+  getLogContext, 
+  setupCorrelationIdLogging 
+} from './correlation-id.middleware.js';
+
+// Re-export health check service
+export { performHealthCheck, registerHealthCheckRoute } from './health-check.service.js';
+
+// Re-export graceful shutdown handler
+export { setupGracefulShutdown, GracefulShutdown } from './graceful-shutdown.js';
+
+/**
+ * Make an external API call with timeout and error handling
+ * @param url The URL to fetch
+ * @param options Fetch options
+ * @param timeoutMs Timeout in milliseconds (default 5000)
+ * @param serviceName Name of the service for logging
+ * @returns Fetch response or null if timeout/error
+ */
+export async function fetchWithTimeout(
+  url: string,
+  options: RequestInit = {},
+  timeoutMs: number = 5000,
+  serviceName: string = 'API'
+): Promise<Response | null> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    return response;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn(`[${serviceName}] Request timeout after ${timeoutMs}ms to ${url}`);
+    } else {
+      console.error(`[${serviceName}] Request failed to ${url}:`, error);
+    }
+    return null;
+  }
+}

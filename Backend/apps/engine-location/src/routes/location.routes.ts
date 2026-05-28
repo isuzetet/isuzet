@@ -5,6 +5,38 @@ import { processLocationPing, logWeighbridgeEntry, getCurrentFuelPrice, reportFu
 import { getTripLocationHistory } from '../services/timescale.service.js';
 import { prisma } from '@ruit/shared-db';
 
+/**
+ * Validate GPS coordinates are within reasonable bounds
+ * Ethiopia geographic bounds with 0.5° buffer for border regions
+ * Lat: 3.4°N - 14.9°N, Lng: 32.9°E - 47.9°E
+ */
+function validateGpsCoordinates(lat: number, lng: number): { valid: boolean; error?: string } {
+  // Bounds validation
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { valid: false, error: 'Coordinates must be valid numbers' };
+  }
+
+  // Ethiopia strict bounds
+  const MIN_LAT = 3.0, MAX_LAT = 15.0;
+  const MIN_LNG = 32.5, MAX_LNG = 48.5;
+
+  if (lat < MIN_LAT || lat > MAX_LAT || lng < MIN_LNG || lng > MAX_LNG) {
+    return {
+      valid: false,
+      error: `Coordinates (${lat.toFixed(4)}, ${lng.toFixed(4)}) outside Ethiopia bounds [${MIN_LAT}-${MAX_LAT}°N, ${MIN_LNG}-${MAX_LNG}°E]`
+    };
+  }
+
+  // Accuracy check - coordinates should have at least 4 decimal places (~10m precision)
+  const latDecimals = lat.toString().split('.')[1]?.length || 0;
+  const lngDecimals = lng.toString().split('.')[1]?.length || 0;
+  if (latDecimals < 3 || lngDecimals < 3) {
+    return { valid: false, error: 'Coordinates must have at least 3 decimal places (~100m precision)' };
+  }
+
+  return { valid: true };
+}
+
 export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
   // ─────────────────────────────────────────────────────────────
   // POST /api/v1/location/ping
@@ -41,12 +73,12 @@ export async function locationRoutes(fastify: FastifyInstance): Promise<void> {
         });
       }
 
-      // Validate coordinates are reasonable for Ethiopia
-      // Ethiopia bounds: lat 3.4-14.9, lng 32.9-47.9
-      if (body.lat < 3 || body.lat > 15 || body.lng < 33 || body.lng > 48) {
+      // Validate GPS coordinates using strict bounds checking
+      const coordValidation = validateGpsCoordinates(body.lat, body.lng);
+      if (!coordValidation.valid) {
         return reply.status(400).send({
           success: false,
-          error: { code: 'INVALID_COORDINATES', message: 'Coordinates outside Ethiopia bounds' }
+          error: { code: 'INVALID_COORDINATES', message: coordValidation.error }
         });
       }
 

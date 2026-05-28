@@ -77,22 +77,30 @@ export class TelegramService {
 
       try {
         // Send to identity engine to complete the link
-        const response = await fetch('http://localhost:3001/api/v1/telegram/complete-link', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            linkCode: code,
-            telegramUserId: String(ctx.from?.id),
-            telegramUsername: ctx.from?.username || null,
-            telegramFirstName: ctx.from?.first_name || null,
-            telegramLastName: ctx.from?.last_name || null,
-          }),
-        });
+        const TelegramBot = await import('telegraf');
+        const { fetchWithTimeout } = await import('@ruit/shared-utils');
+        
+        const response = await fetchWithTimeout(
+          'http://localhost:3001/api/v1/telegram/complete-link',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              linkCode: code,
+              telegramUserId: String(ctx.from?.id),
+              telegramUsername: ctx.from?.username || null,
+              telegramFirstName: ctx.from?.first_name || null,
+              telegramLastName: ctx.from?.last_name || null,
+            }),
+          },
+          5000,
+          'TELEGRAM'
+        );
 
-        if (response.ok) {
+        if (response && response.ok) {
           await ctx.reply('✅ Account linked successfully! You can now receive ISUZET notifications.');
         } else {
-          const error = await response.json();
+          const error = response ? await response.json() : { error: 'Request timeout' };
           await ctx.reply(`❌ Linking failed: ${error.error || 'Invalid code or expired'}`);
         }
       } catch (error) {

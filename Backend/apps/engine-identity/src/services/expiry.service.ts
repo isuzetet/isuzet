@@ -52,14 +52,24 @@ export async function checkExpiringDocuments(): Promise<void> {
         { annualInspectionExpiry: { lt: thirtyDaysFromNow, gt: new Date() } },
         { roadWorthinessExpiry: { lt: thirtyDaysFromNow, gt: new Date() } }
       ],
-      // truck model uses a status column rather than `isActive`.
-      // only consider active vehicles (and ignore soft-deleted ones)
       status: 'ACTIVE',
       deletedAt: null
     },
-    // we do not load the relation here â€“ the model only exposes
-    // `fleetOwnerId`, so fetch the owner when needed below
   });
+
+  // Batch fetch all unique fleet owners (not per-truck)
+  const uniqueTruckOwnerIds = [...new Set(
+    trucksWithExpiringDocs
+      .map(t => t.fleetOwnerId)
+      .filter((id): id is string => id !== null)
+  )];
+  
+  const truckOwnersMap = new Map(
+    (await prisma.fleetOwner.findMany({
+      where: { id: { in: uniqueTruckOwnerIds } },
+      include: { user: true }
+    })).map(owner => [owner.id, owner])
+  );
 
   for (const truck of trucksWithExpiringDocs) {
     await emitEvent({
@@ -80,11 +90,7 @@ export async function checkExpiringDocuments(): Promise<void> {
 
     // Notify fleet owner
     if (truck.fleetOwnerId) {
-      const owner = await prisma.fleetOwner.findUnique({
-        where: { id: truck.fleetOwnerId },
-        include: { user: true }
-      });
-
+      const owner = truckOwnersMap.get(truck.fleetOwnerId);
       if (owner?.user?.phone) {
         await notifyViaSms(
           owner.user.phone,
@@ -98,10 +104,23 @@ export async function checkExpiringDocuments(): Promise<void> {
   const driversWithExpiringLicenses = await prisma.driver.findMany({
     where: {
       licenseExpiry: { lt: thirtyDaysFromNow, gt: new Date() }
-      // remove isActive â€“ DriverWhereInput has no such field
     },
     include: { user: true }
   });
+
+  // Batch fetch all unique fleet owners for drivers (not per-driver)
+  const uniqueDriverOwnerIds = [...new Set(
+    driversWithExpiringLicenses
+      .map(d => d.fleetOwnerId)
+      .filter((id): id is string => id !== null)
+  )];
+  
+  const driverOwnersMap = new Map(
+    (await prisma.fleetOwner.findMany({
+      where: { id: { in: uniqueDriverOwnerIds } },
+      include: { user: true }
+    })).map(owner => [owner.id, owner])
+  );
 
   for (const driver of driversWithExpiringLicenses) {
     await emitEvent({
@@ -126,11 +145,7 @@ export async function checkExpiringDocuments(): Promise<void> {
 
     // Notify fleet owner
     if (driver.fleetOwnerId) {
-      const owner = await prisma.fleetOwner.findUnique({
-        where: { id: driver.fleetOwnerId },
-        include: { user: true }
-      });
-
+      const owner = driverOwnersMap.get(driver.fleetOwnerId);
       if (owner?.user?.phone) {
         await notifyViaSms(
           owner.user.phone,
