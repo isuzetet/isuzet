@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -rn \"mock\\\\|Mock\\\\|dummy\\\\|Dummy\\\\|fake\\\\|Fake\\\\|hardcoded\\\\|placeholder\\\\|TODO\\\\|FIXME\" C:/Users/ygebr/Desktop/LAS/isuzet_field/lib --include=*.dart)"
+    ]
+  }
+}

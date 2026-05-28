@@ -1,0 +1,263 @@
+import { prisma, generateId } from '@ruit/shared-db';
+import { cached, invalidateCache } from '@ruit/shared-utils';
+
+export type ShockEvent = {
+  id: string;
+  shock_type: string;
+  severity: number;
+  affected_corridors: string[];
+  is_active: boolean;
+  actions_taken: unknown;
+};
+
+// Shock mode severity matrix from PRD Section 7.4
+// All thresholds read from strategy_versions.threshold_set — never hardcoded
+export async function getActiveShockEvent(): Promise<ShockEvent | null> {
+  return cached('cache:shock:active', 30, async () => {
+    const event = await prisma.shockEvent.findFirst({
+      where: { is_active: true },
+      orderBy: { severity: 'desc' },
+    });
+    return event as ShockEvent | null;
+  });
+}
+
+export async function activateShockMode(params: {
+  shock_type: string;
+  severity: number; // 1-4
+  affected_corridors: string[];
+  description: string;
+  triggered_by: 'SYSTEM' | 'MANUAL';
+  triggered_by_user_id?: string;
+}): Promise<ShockEvent> {
+  const event = await prisma.shockEvent.create({
+    data: {
+      id: generateId('shk'),
+      shock_type: params.shock_type,
+      severity: params.severity,
+      affected_corridors: params.affected_corridors,
+      description: params.description,
+      triggered_by: params.triggered_by,
+      triggered_by_user_id: params.triggered_by_user_id ?? null,
+      is_active: true,
+      actions_taken: {
+        margin_floor_increase_pct: getMarginFloorIncrease(params.severity),
+        negotiation_band_max: getNegotiationBandMax(params.severity),
+        activated_at: new Date().toISOString(),
+      },
+    },
+  });
+
+  await invalidateCache('cache:shock:active');
+
+  // Emit event to events table
+  await prisma.event.create({
+    data: {
+      id: generateId('evt'),
+      event_type: 'SHOCK_MODE_ACTIVATED',
+      aggregate_id: event.id,
+      aggregate_type: 'CORRIDOR',
+      actor_id: params.triggered_by_user_id ?? 'SYSTEM',
+      actor_role: params.triggered_by === 'MANUAL' ? 'OPS_ADMIN' : 'SYSTEM',
+      strategy_version_id: await getActiveStrategyId(),
+      payload: {
+        severity: params.severity,
+        shock_type: params.shock_type,
+        affected_corridors: params.affected_corridors,
+        margin_floor_increase_pct: getMarginFloorIncrease(params.severity),
+      },
+      metadata: {
+        source: params.triggered_by === 'MANUAL' ? 'API' : 'SYSTEM',
+        is_manual_override: params.triggered_by === 'MANUAL',
+      },
+    },
+  });
+
+  return event as ShockEvent;
+}
+
+export async function deactivateShockMode(
+  shockEventId: string,
+  userId: string
+): Promise<void> {
+  await prisma.shockEvent.update({
+    where: { id: shockEventId },
+    data: { is_active: false, ended_at: new Date() },
+  });
+
+  await invalidateCache('cache:shock:active');
+
+  await prisma.event.create({
+    data: {
+      id: generateId('evt'),
+      event_type: 'SHOCK_MODE_DEACTIVATED',
+      aggregate_id: shockEventId,
+      aggregate_type: 'CORRIDOR',
+      actor_id: userId,
+      actor_role: 'OPS_ADMIN',
+      strategy_version_id: await getActiveStrategyId(),
+      payload: { deactivated_at: new Date().toISOString() },
+      metadata: { source: 'API', is_manual_override: true },
+    },
+  });
+}
+
+// Margin floor increase per severity (from PRD Section 7.4 + Final Edit 9)
+function getMarginFloorIncrease(severity: number): number {
+  const increases: Record<number, number> = {
+    1: 5,
+    2: 15,
+    3: 30,
+    4: 50,
+  };
+  return increases[severity] ?? 5;
+}
+
+// Negotiation band max per severity (from Final Edit 9 — Amendment 2)
+export function getNegotiationBandMax(severity: number): number {
+  const caps: Record<number, number> = {
+    1: 1.15,
+    2: 1.1,
+    3: 1.05,
+    4: 1.0,
+  };
+  return caps[severity] ?? 1.15;
+}
+
+// Auto-trigger evaluation — called on each relevant event
+// Thresholds from strategy_versions.threshold_set.shock_auto_triggers
+export async function evaluateAutoTriggers(
+  triggerType: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  const sv = await prisma.strategyVersion.findFirst({
+    where: { is_active: true },
+  });
+  if (!sv) return;
+
+  const triggers =
+    ((sv.threshold_set as Record<string, unknown>)?.shock_auto_triggers as Record<
+      string,
+      number
+    >) ?? {};
+
+  const existing = await getActiveShockEvent();
+  if (existing && existing.severity >= 3) return; // already in severe shock
+
+  switch (triggerType) {
+    case 'FUEL_LOG_SUBMITTED': {
+      // Check if fuel queue wait > threshold across 5+ logs in 4 hours
+      const threshold = triggers.fuel_queue_wait_minutes ?? 60;
+      const recentFuelQueues = await prisma.$queryRaw<
+        Array<{ count: bigint }>
+      >`
+        SELECT COUNT(*) as count FROM fuel_logs
+        WHERE fuel_queue_wait_min > ${threshold}
+        AND logged_at > NOW() - INTERVAL '4 hours'
+      `;
+      if (Number(recentFuelQueues[0]?.count ?? 0) >= 5) {
+        await activateShockMode({
+          shock_type: 'FUEL_SHORTAGE',
+          severity: 1,
+          affected_corridors: [],
+          description: 'Auto-triggered: fuel queue wait exceeds threshold',
+          triggered_by: 'SYSTEM',
+        });
+      }
+      break;
+    }
+    case 'INCIDENT_OPENED': {
+      const window = triggers.incident_spike_window_hours ?? 2;
+      const count = triggers.incident_spike_count ?? 10;
+      const recent = await prisma.incident.count({
+        where: {
+          severity: { in: ['HIGH', 'CRITICAL'] },
+          created_at: {
+            gte: new Date(Date.now() - window * 60 * 60 * 1000),
+          },
+        },
+      });
+      if (recent >= count) {
+        await activateShockMode({
+          shock_type: 'MANUAL',
+          severity: 2,
+          affected_corridors: [],
+          description: 'Auto-triggered: incident spike detected',
+          triggered_by: 'SYSTEM',
+        });
+      }
+      break;
+    }
+  }
+}
+
+async function getActiveStrategyId(): Promise<string> {
+  const sv = await prisma.strategyVersion.findFirst({
+    where: { is_active: true },
+  });
+  return sv?.id ?? 'sv_phase1_growth';
+}
+
+// Get shock history
+export async function getShockHistory(limit: number = 50): Promise<ShockEvent[]> {
+  const events = await prisma.shockEvent.findMany({
+    orderBy: { started_at: 'desc' },
+    take: limit,
+  });
+  return events as ShockEvent[];
+}
+
+// Update auto-trigger config
+export async function updateAutoTriggerConfig(
+  metric: string,
+  threshold: number,
+  severity: number
+): Promise<void> {
+  const sv = await prisma.strategyVersion.findFirst({
+    where: { is_active: true },
+  });
+
+  if (!sv) {
+    throw new Error('No active strategy version found');
+  }
+
+  const currentThresholdSet =
+    (sv.threshold_set as Record<string, unknown>) ?? {};
+  const shockAutoTriggers =
+    (currentThresholdSet.shock_auto_triggers as Record<string, number>) ?? {};
+
+  await prisma.strategyVersion.update({
+    where: { id: sv.id },
+    data: {
+      threshold_set: {
+        ...currentThresholdSet,
+        shock_auto_triggers: {
+          ...shockAutoTriggers,
+          [metric]: threshold,
+        },
+      },
+    },
+  });
+
+  // Emit event
+  await prisma.event.create({
+    data: {
+      id: generateId('evt'),
+      event_type: 'STRATEGY_VERSION_CHANGED',
+      aggregate_id: sv.id,
+      aggregate_type: 'STRATEGY',
+      actor_id: 'SYSTEM',
+      actor_role: 'SUPER_ADMIN',
+      strategy_version_id: sv.id,
+      payload: {
+        updated_metric: metric,
+        new_threshold: threshold,
+        updated_field: 'shock_auto_triggers',
+      },
+      metadata: { source: 'API', is_manual_override: true },
+    },
+  });
+
+  // Invalidate cache
+  await invalidateCache('cache:strategy:active:GLOBAL');
+}

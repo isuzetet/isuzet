@@ -1,0 +1,245 @@
+﻿/**
+ * RUIT CBE â€” Engine 10 Strategy Service
+ * Core business logic for strategy versioning
+ */
+import { prisma } from '@ruit/shared-db';
+import { cached, invalidateCache } from '@ruit/shared-utils';
+import { ulid } from 'ulid';
+
+// Constants per PRD
+const CACHE_TTL = 300; // 5 minutes for active strategy
+
+interface EmitEventParams {
+  eventType: string;
+  aggregateId: string;
+  aggregateType: string;
+  actorId: string;
+  actorRole: string;
+  corridorId?: string;
+  payload: Record<string, unknown>;
+  isManualOverride?: boolean;
+}
+
+/**
+ * Emit event to events table
+ * Per PRD: events table is append-only
+ */
+export async function emitEvent(params: EmitEventParams): Promise<void> {
+  const activeStrategyId = await getActiveStrategyId();
+
+  await prisma.event.create({
+    data: {
+      id: `evt_${ulid()}`,
+      eventType: params.eventType,
+      aggregateId: params.aggregateId,
+      aggregateType: params.aggregateType,
+      actorId: params.actorId,
+      actorRole: params.actorRole,
+      strategyVersionId: activeStrategyId,
+      corridorId: params.corridorId ?? null,
+      payload: params.payload as any,
+      metadata: {
+        source: 'API',
+        isManualOverride: params.isManualOverride ?? false,
+        timestamp: new Date().toISOString()
+      } as any
+    }
+  });
+}
+
+/**
+ * Get active strategy version ID
+ * Used for event logging
+ */
+export async function getActiveStrategyId(): Promise<string> {
+  const active = await prisma.strategyVersion.findFirst({
+    where: { isActive: true, scope: 'GLOBAL' }
+  });
+
+  if (!active) {
+    // Return a system default if no active strategy
+    // This shouldn't happen in production after seed
+    const defaultStrategy = await prisma.strategyVersion.findFirst({
+      orderBy: { createdAt: 'desc' }
+    });
+    return defaultStrategy?.id || 'str_default';
+  }
+
+  return active.id;
+}
+
+/**
+ * Get the active strategy for a given scope
+ * With Redis caching per PRD Section E5
+ */
+export async function getActiveStrategy(scope: string = 'GLOBAL'): Promise<any> {
+  const cacheKey = `cache:strategy:active:${scope}`;
+
+  return cached(cacheKey, CACHE_TTL, async () => {
+    const strategy = await prisma.strategyVersion.findFirst({
+      where: {
+        isActive: true,
+        scope
+      }
+    });
+
+    if (!strategy) {
+      // If scope-specific not found, fallback to GLOBAL
+      if (scope !== 'GLOBAL') {
+        return getActiveStrategy('GLOBAL');
+      }
+
+      // No active GLOBAL strategy - system is broken
+      throw new Error('SYSTEM_ERROR_NO_ACTIVE_STRATEGY');
+    }
+
+    return strategy;
+  });
+}
+
+/**
+ * Validate that weightSet values sum to approximately 1.0
+ * Per PRD: acceptance tolerance is 0.001
+ */
+export function validateWeightSet(weights: Record<string, number>): boolean {
+  const values = Object.values(weights);
+  if (values.length === 0) return false;
+
+  const sum = values.reduce((acc, val) => acc + val, 0);
+  // Tolerance: 0.999 to 1.001
+  return sum >= 0.999 && sum <= 1.001;
+}
+
+/**
+ * Get active strategy configuration with type safety
+ */
+export async function getActiveStrategyConfig(scope: string = 'GLOBAL'): Promise<{
+  id: string;
+  optimizationMode: string;
+  weightSet: Record<string, number>;
+  thresholdSet: Record<string, unknown>;
+  pricingParams: Record<string, unknown>;
+  acceptanceWindowMinutes: number;
+  maxAssignmentAttempts: number;
+  abTestGroup: string | null;
+  abTrafficPct: number;
+}> {
+  const strategy = await getActiveStrategy(scope);
+
+  return {
+    id: strategy.id,
+    optimizationMode: strategy.optimizationMode,
+    weightSet: (strategy.weightSet as Record<string, number>) || {},
+    thresholdSet: (strategy.thresholdSet as Record<string, unknown>) || {},
+    pricingParams: (strategy.pricingParams as Record<string, unknown>) || {},
+    acceptanceWindowMinutes: strategy.acceptanceWindowMinutes,
+    maxAssignmentAttempts: strategy.maxAssignmentAttempts,
+    abTestGroup: strategy.abTestGroup,
+    abTrafficPct: strategy.abTrafficPct
+  };
+}
+
+/**
+ * Get trust decay configuration from active strategy
+ * Per Final Edit 1
+ */
+export async function getTrustDecayConfig(): Promise<{
+  dispute_lambda: number;
+  incident_lambda: number;
+  deviation_lambda: number;
+  cancel_lambda: number;
+  dispute_penalty: number;
+  incident_penalty: number;
+  deviation_penalty: number;
+  cancel_penalty: number;
+}> {
+  const strategy = await getActiveStrategy('GLOBAL');
+  const thresholdSet = strategy.thresholdSet as any;
+
+  return {
+    dispute_lambda: thresholdSet?.trust_decay?.dispute_lambda ?? 0.023,
+    incident_lambda: thresholdSet?.trust_decay?.incident_lambda ?? 0.008,
+    deviation_lambda: thresholdSet?.trust_decay?.deviation_lambda ?? 0.003,
+    cancel_lambda: thresholdSet?.trust_decay?.cancel_lambda ?? 0.023,
+    dispute_penalty: thresholdSet?.trust_decay?.dispute_penalty ?? 15,
+    incident_penalty: thresholdSet?.trust_decay?.incident_penalty ?? 10,
+    deviation_penalty: thresholdSet?.trust_decay?.deviation_penalty ?? 5,
+    cancel_penalty: thresholdSet?.trust_decay?.cancel_penalty ?? 8
+  };
+}
+
+/**
+ * Get tier trip minimums from active strategy
+ * Per Amendment 2 C5
+ */
+export async function getTierTripMinimums(): Promise<{
+  tier2: number;
+  tier3: number;
+  tier4: number;
+  tier5: number;
+}> {
+  const strategy = await getActiveStrategy('GLOBAL');
+  const thresholdSet = strategy.thresholdSet as any;
+
+  return {
+    tier2: thresholdSet?.tier_trip_minimums?.tier2 ?? 3,
+    tier3: thresholdSet?.tier_trip_minimums?.tier3 ?? 10,
+    tier4: thresholdSet?.tier_trip_minimums?.tier4 ?? 25,
+    tier5: thresholdSet?.tier_trip_minimums?.tier5 ?? 100
+  };
+}
+
+/**
+ * Get backhaul confidence thresholds
+ * Per Final Edit 5
+ */
+export async function getBackhaulConfidenceThresholds(): Promise<{
+  minTripsForLow: number;
+  minTripsForMedium: number;
+  minTripsForHigh: number;
+  minTripsForFull: number;
+}> {
+  const strategy = await getActiveStrategy('GLOBAL');
+  const thresholdSet = strategy.thresholdSet as any;
+
+  return {
+    minTripsForLow: thresholdSet?.backhaul_confidence_thresholds?.min_trips_for_low_confidence ?? 5,
+    minTripsForMedium: thresholdSet?.backhaul_confidence_thresholds?.min_trips_for_medium_confidence ?? 20,
+    minTripsForHigh: thresholdSet?.backhaul_confidence_thresholds?.min_trips_for_high_confidence ?? 50,
+    minTripsForFull: thresholdSet?.backhaul_confidence_thresholds?.min_trips_for_full_confidence ?? 100
+  };
+}
+
+/**
+ * Invalidate strategy cache
+ * Call this whenever strategy version changes
+ */
+export async function invalidateStrategyCache(scope: string): Promise<void> {
+  await invalidateCache(`cache:strategy:active:${scope}`);
+}
+
+/**
+ * Check if A/B testing is enabled for current strategy
+ */
+export async function isABTestEnabled(): Promise<boolean> {
+  const strategy = await getActiveStrategy('GLOBAL');
+  return !!strategy.abTestGroup && strategy.abTrafficPct > 0;
+}
+
+/**
+ * Determine A/B test group for entity
+ * Consistent hashing by entity_id
+ */
+export function determineABTestGroup(entityId: string, trafficPct: number): 'A' | 'B' {
+  // Simple hash of entity_id
+  let hash = 0;
+  for (let i = 0; i < entityId.length; i++) {
+    const char = entityId.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32bit integer
+  }
+
+  const normalized = Math.abs(hash) % 100;
+  return normalized < trafficPct ? 'A' : 'B';
+}
+

@@ -1,0 +1,497 @@
+# ===================================================================
+# RUIT CBE LaaS Platform — Production Docker Compose
+# ===================================================================
+# This file defines all 13 engines + workers + infrastructure
+# for production deployment
+# ===================================================================
+
+version: '3.9'
+
+services:
+  # ── INFRASTRUCTURE SERVICES ─────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: ruit_postgres_prod
+    environment:
+      POSTGRES_USER: ruit
+      POSTGRES_PASSWORD: ${DATABASE_URL:?DATABASE_URL not set}
+      POSTGRES_DB: ruit_cbe
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ruit -d ruit_cbe"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  timescaledb:
+    image: timescale/timescaledb:2.13.0-pg16
+    container_name: ruit_timescaledb_prod
+    environment:
+      POSTGRES_USER: ruit
+      POSTGRES_PASSWORD: ${TIMESCALE_URL:?TIMESCALE_URL not set}
+      POSTGRES_DB: ruit_ts
+    ports:
+      - "5433:5432"
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ruit -d ruit_ts"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: ruit_redis_prod
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: ruit_minio_prod
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # ── ENGINE 1: IDENTITY (PORT 3001) ─────────────────────────────────
+  engine-identity:
+    image: node:20-alpine
+    container_name: ruit_engine_identity
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-identity/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_IDENTITY:-3001}
+      - DATABASE_URL=${DATABASE_URL}
+      - TIMESCALE_URL=${TIMESCALE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - REFRESH_SECRET=${REFRESH_SECRET}
+      - OTP_TTL_SECONDS=${OTP_TTL_SECONDS:-300}
+      - OTP_MAX_ATTEMPTS=${OTP_MAX_ATTEMPTS:-3}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_IDENTITY:-3001}:${PORT_IDENTITY:-3001}"
+    depends_on:
+      - postgres
+      - redis
+      - timescaledb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_IDENTITY:-3001}/api/v1/identity/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 2: OPTIMIZER (PORT 3002) ────────────────────────────────
+  engine-optimizer:
+    image: node:20-alpine
+    container_name: ruit_engine_optimizer
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-optimizer/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_OPTIMIZER:-3002}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - STRATEGY_ENGINE_URL=${STRATEGY_ENGINE_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_OPTIMIZER:-3002}:${PORT_OPTIMIZER:-3002}"
+    depends_on:
+      - postgres
+      - redis
+      - engine-strategy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_OPTIMIZER:-3002}/api/v1/optimizer/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 3: CORRIDOR (PORT 3003) ─────────────────────────────────
+  engine-corridor:
+    image: node:20-alpine
+    container_name: ruit_engine_corridor
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-corridor/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_CORRIDOR:-3003}
+      - DATABASE_URL=${DATABASE_URL}
+      - TIMESCALE_URL=${TIMESCALE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_CORRIDOR:-3003}:${PORT_CORRIDOR:-3003}"
+    depends_on:
+      - postgres
+      - redis
+      - timescaledb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_CORRIDOR:-3003}/api/v1/corridor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 4: LIQUIDITY (PORT 3004) ────────────────────────────────
+  engine-liquidity:
+    image: node:20-alpine
+    container_name: ruit_engine_liquidity
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-liquidity/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_LIQUIDITY:-3004}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - SHOCK_MODE_ENABLED=${SHOCK_MODE_ENABLED:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_LIQUIDITY:-3004}:${PORT_LIQUIDITY:-3004}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_LIQUIDITY:-3004}/api/v1/liquidity/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 5: SHOCK (PORT 3005) ────────────────────────────────────
+  engine-shock:
+    image: node:20-alpine
+    container_name: ruit_engine_shock
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-shock/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_SHOCK:-3005}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - SHOCK_MODE_ENABLED=${SHOCK_MODE_ENABLED:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_SHOCK:-3005}:${PORT_SHOCK:-3005}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_SHOCK:-3005}/api/v1/shock/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 6: INCIDENT (PORT 3006) ─────────────────────────────────
+  engine-incident:
+    image: node:20-alpine
+    container_name: ruit_engine_incident
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-incident/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_INCIDENT:-3006}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - NOTIFICATION_ENGINE_URL=${NOTIFICATION_ENGINE_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_INCIDENT:-3006}:${PORT_INCIDENT:-3006}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_INCIDENT:-3006}/api/v1/incident/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 7: BEHAVIOR (PORT 3007) ────────────────────────────────
+  engine-behavior:
+    image: node:20-alpine
+    container_name: ruit_engine_behavior
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-behavior/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_BEHAVIOR:-3007}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_BEHAVIOR:-3007}:${PORT_BEHAVIOR:-3007}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_BEHAVIOR:-3007}/api/v1/behavior/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 8: DATA (PORT 3008) ─────────────────────────────────────
+  engine-data:
+    image: node:20-alpine
+    container_name: ruit_engine_data
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-data/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_DATA:-3008}
+      - DATABASE_URL=${DATABASE_URL}
+      - TIMESCALE_URL=${TIMESCALE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_DATA:-3008}:${PORT_DATA:-3008}"
+    depends_on:
+      - postgres
+      - redis
+      - timescaledb
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_DATA:-3008}/api/v1/data/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 9: FRAUD (PORT 3009) ────────────────────────────────────
+  engine-fraud:
+    image: node:20-alpine
+    container_name: ruit_engine_fraud
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-fraud/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_FRAUD:-3009}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_FRAUD:-3009}:${PORT_FRAUD:-3009}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_FRAUD:-3009}/api/v1/fraud/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 10: STRATEGY (PORT 3010) ────────────────────────────────
+  engine-strategy:
+    image: node:20-alpine
+    container_name: ruit_engine_strategy
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-strategy/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_STRATEGY:-3010}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_STRATEGY:-3010}:${PORT_STRATEGY:-3010}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_STRATEGY:-3010}/api/v1/strategy/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 11: HEALTH MONITOR (PORT 3011) ──────────────────────────
+  engine-health:
+    image: node:20-alpine
+    container_name: ruit_engine_health
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-health/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_HEALTH:-3011}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - HEALTH_CHECK_INTERVAL_MS=${HEALTH_CHECK_INTERVAL_MS:-30000}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_HEALTH:-3011}:${PORT_HEALTH:-3011}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_HEALTH:-3011}/api/v1/health/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 12: TWIN (PORT 3012) ────────────────────────────────────
+  engine-twin:
+    image: node:20-alpine
+    container_name: ruit_engine_twin
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/engine-twin/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_TWIN:-3012}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_TWIN:-3012}:${PORT_TWIN:-3012}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_TWIN:-3012}/api/v1/twin/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── ENGINE 13: NOTIFICATIONS (PORT 3013) ───────────────────────────
+  engine-notifications:
+    image: node:20-alpine
+    container_name: ruit_engine_notifications
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/notification-engine/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - PORT=${PORT_NOTIFICATIONS:-3013}
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - AFRICAS_TALKING_API_KEY=${AFRICAS_TALKING_API_KEY}
+      - AFRICAS_TALKING_USERNAME=${AFRICAS_TALKING_USERNAME}
+      - AFRICAS_TALKING_SENDER_ID=${AFRICAS_TALKING_SENDER_ID}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
+      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID}
+      - FIREBASE_CLIENT_EMAIL=${FIREBASE_CLIENT_EMAIL}
+      - FIREBASE_PRIVATE_KEY=${FIREBASE_PRIVATE_KEY}
+      - RESEND_API_KEY=${RESEND_API_KEY}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    ports:
+      - "${PORT_NOTIFICATIONS:-3013}:${PORT_NOTIFICATIONS:-3013}"
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:${PORT_NOTIFICATIONS:-3013}/api/v1/notifications/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ── WORKERS SERVICE ────────────────────────────────────────────────
+  workers:
+    image: node:20-alpine
+    container_name: ruit_workers
+    working_dir: /app
+    volumes:
+      - ../:/app
+    command: node apps/workers/dist/index.js
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - NOTIFICATION_ENGINE_URL=${NOTIFICATION_ENGINE_URL}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    depends_on:
+      - postgres
+      - redis
+      - engine-notifications
+    restart: unless-stopped
+
+# ── VOLUMES ────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+  timescale_data:
+  redis_data:
+  minio_data:

@@ -1,0 +1,18 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "skipLibCheck": true,
+    "strict": true,
+    "paths": {
+      "@ruit/shared-types": ["../../packages/shared-types/dist/index.d.ts"],
+      "@ruit/shared-utils": ["../../packages/shared-utils/dist/index.d.ts"],
+      "@ruit/shared-db":    ["../../packages/shared-db/dist/index.d.ts"],
+      "@ruit/shared-queue": ["../../packages/shared-queue/dist/index.d.ts"],
+      "@ruit/shared-auth":  ["../../packages/shared-auth/dist/index.d.ts"]
+    }
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

@@ -1,0 +1,269 @@
+import { FastifyInstance } from 'fastify';
+import { prisma, generateId } from '@ruit/shared-db';
+import { cached as cacheGet, invalidateCache, toEthiopianDate } from '@ruit/shared-utils';
+import { ROLES } from '@ruit/shared-types';
+import {
+  getDensityScore,
+  isStrategicCorridor,
+  takeCorridorSnapshot,
+} from '../services/density.service.js';
+
+const OPS_ROLES = [
+  ROLES.OPS_ADMIN,
+  ROLES.OPS_VIEWER,
+  ROLES.SUPER_ADMIN,
+  ROLES.FINANCE_OPS,
+];
+
+const ROLES_ANY = Object.values(ROLES);
+
+export default async function corridorRoutes(fastify: FastifyInstance) {
+  // GET /api/v1/corridor/corridors
+  // Auth: ANY authenticated role
+  fastify.get('/corridors', { preHandler: (fastify as any).requireRole(ROLES_ANY) }, async (request, reply) => {
+    // Check cache
+    const cacheKey = 'cache:corridor:list';
+    const data = await cacheGet(cacheKey, 600, async () => {
+      const corridors = await prisma.corridor.findMany({
+        where: { status: 'ACTIVE' },
+        orderBy: { created_at: 'desc' },
+      });
+      return corridors;
+    });
+
+    return {
+      success: true,
+      data: data,
+      pagination: {
+        page: 1,
+        pageSize: data.length,
+        totalPages: 1,
+        totalItems: data.length,
+      },
+    };
+  });
+
+  // GET /api/v1/corridor/corridors/:id
+  // Auth: ANY authenticated role
+  fastify.get<{ Params: { id: string } }>(
+    '/corridors/:id',
+    { preHandler: (fastify as any).requireRole(ROLES_ANY) },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      // Check cache
+      const cacheKey = `cache:corridor:${id}`;
+      const data = await cacheGet(cacheKey, 600, async () => {
+        const corridor = await prisma.corridor.findUnique({
+          where: { id },
+        });
+        return corridor;
+      });
+
+      if (!data) {
+        return reply.status(404).send({
+          success: false,
+          error: {
+            code: 'ENTITY_NOT_FOUND',
+            message: 'Corridor not found',
+          },
+        });
+      }
+
+      return { success: true, data: data };
+    }
+  );
+
+  // GET /api/v1/corridor/corridors/:id/density
+  // Auth: ANY authenticated role
+  fastify.get<{ Params: { id: string } }>(
+    '/corridors/:id/density',
+    { preHandler: (fastify as any).requireRole(ROLES_ANY) },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      // Verify corridor exists
+      const corridor = await prisma.corridor.findUnique({
+        where: { id },
+      });
+
+      if (!corridor) {
+        return reply.status(404).send({
+          success: false,
+          error: {
+            code: 'ENTITY_NOT_FOUND',
+            message: 'Corridor not found',
+          },
+        });
+      }
+
+      const [densityScore, strategic, healthScore] = await Promise.all([
+        getDensityScore(id),
+        isStrategicCorridor(id),
+        Promise.resolve(Number(corridor.health_score || 0)),
+      ]);
+
+      return {
+        success: true,
+        data: {
+          corridor_id: id,
+          density_score: densityScore,
+          is_strategic: strategic,
+          health_score: healthScore,
+        },
+      };
+    }
+  );
+
+  // POST /api/v1/corridor/corridors/:id/snapshot
+  // Auth: OPS_ADMIN, SUPER_ADMIN
+  fastify.post<{ Params: { id: string } }>(
+    '/corridors/:id/snapshot',
+    { preHandler: (fastify as any).requireRole([ROLES.OPS_ADMIN, ROLES.SUPER_ADMIN]) },
+    async (request, reply) => {
+      const { id } = request.params;
+
+      // Verify corridor exists
+      const corridor = await prisma.corridor.findUnique({
+        where: { id },
+      });
+
+      if (!corridor) {
+        return reply.status(404).send({
+          success: false,
+          error: {
+            code: 'ENTITY_NOT_FOUND',
+            message: 'Corridor not found',
+          },
+        });
+      }
+
+      await takeCorridorSnapshot(id);
+
+      return {
+        success: true,
+        data: {
+          snapshot_taken: true,
+        },
+      };
+    }
+  );
+
+  // PUT /api/v1/corridor/corridors/:id/freeze
+  // Auth: OPS_ADMIN, SUPER_ADMIN
+  fastify.put<{ Params: { id: string }; Body: { reason: string } }>(
+    '/corridors/:id/freeze',
+    { preHandler: (fastify as any).requireRole([ROLES.OPS_ADMIN, ROLES.SUPER_ADMIN]) },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { reason } = request.body || {} as any;
+
+      // Update corridor status
+      const corridor = await prisma.corridor.update({
+        where: { id },
+        data: {
+          status: 'FROZEN',
+          updated_at: new Date(),
+        },
+      });
+
+      // Emit event
+      await prisma.event.create({
+        data: {
+          id: generateId('evt'),
+          event_type: 'CORRIDOR_FROZEN',
+          aggregate_id: id,
+          aggregate_type: 'CORRIDOR',
+          actor_id: (request as any).user?.sub || 'SYSTEM',
+          actor_role: (request as any).user?.role || 'OPS_ADMIN',
+          strategy_version_id: await getActiveStrategyId(),
+          payload: {
+            reason,
+            frozen_at: new Date().toISOString(),
+          },
+          metadata: {
+            source: 'API',
+            is_manual_override: true,
+          },
+        },
+      });
+
+      // Invalidate cache
+      await invalidateCache(`cache:corridor:${id}`);
+
+      return { success: true };
+    }
+  );
+
+  // PUT /api/v1/corridor/corridors/:id/health-override
+  // Auth: OPS_ADMIN, SUPER_ADMIN
+  fastify.put<{
+    Params: { id: string };
+    Body: { health_score: number };
+  }>(
+    '/corridors/:id/health-override',
+    { preHandler: (fastify as any).requireRole([ROLES.OPS_ADMIN, ROLES.SUPER_ADMIN]) },
+    async (request, reply) => {
+      const { id } = request.params;
+      const { health_score } = request.body || {} as any;
+
+      if (health_score === undefined || health_score < 0 || health_score > 100) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'health_score must be between 0 and 100',
+          },
+        });
+      }
+
+      // Update corridor health score
+      const corridor = await prisma.corridor.update({
+        where: { id },
+        data: {
+          health_score: health_score,
+          updated_at: new Date(),
+        },
+      });
+
+      // Emit event
+      await prisma.event.create({
+        data: {
+          id: generateId('evt'),
+          event_type: 'MANUAL_OVERRIDE_ISSUED',
+          aggregate_id: id,
+          aggregate_type: 'CORRIDOR',
+          actor_id: (request as any).user?.sub || 'SYSTEM',
+          actor_role: (request as any).user?.role || 'OPS_ADMIN',
+          strategy_version_id: await getActiveStrategyId(),
+          payload: {
+            health_score,
+            override_type: 'HEALTH_SCORE',
+          },
+          metadata: {
+            source: 'API',
+            is_manual_override: true,
+          },
+        },
+      });
+
+      // Invalidate cache
+      await invalidateCache(`cache:corridor:${id}`);
+
+      return {
+        success: true,
+        data: {
+          health_score,
+        },
+      };
+    }
+  );
+}
+
+// Helper - get active strategy id
+async function getActiveStrategyId(): Promise<string> {
+  const sv = await prisma.strategyVersion.findFirst({
+    where: { is_active: true, scope: 'GLOBAL' },
+  });
+  return sv?.id ?? 'sv_phase1_growth';
+}
