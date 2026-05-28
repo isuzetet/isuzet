@@ -144,24 +144,35 @@ const internalRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
     const validated = pushSchema.parse(request.body);
     const { device_token, title, body, data } = validated;
 
-    const firebaseEmail = process.env.FIREBASE_CLIENT_EMAIL;
     let sent = false;
 
-    if (firebaseEmail) {
-      try {
-        // Initialize Firebase Admin
-        const admin = await import('firebase-admin');
+    try {
+      // Initialize Firebase Admin using service account file (not env vars)
+      const admin = await import('firebase-admin');
+      
+      if (!admin.apps.length) {
+        // Prefer GOOGLE_APPLICATION_CREDENTIALS file
+        // Falls back to FIREBASE_SERVICE_ACCOUNT_PATH if set
+        const credPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
         
-        if (!admin.apps.length) {
+        if (credPath) {
+          const fs = await import('fs');
+          const serviceAccount = JSON.parse(fs.readFileSync(credPath, 'utf8'));
           admin.initializeApp({
-            credential: admin.credential.cert({
-              projectId: process.env.FIREBASE_PROJECT_ID,
-              clientEmail: firebaseEmail,
-              privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n')
-            })
+            credential: admin.credential.cert(serviceAccount)
           });
+        } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+          // Use application default credentials from file
+          admin.initializeApp({
+            credential: admin.credential.applicationDefault()
+          });
+        } else {
+          // No credentials available
+          console.warn('[PUSH] No Firebase credentials available — FIREBASE_SERVICE_ACCOUNT_PATH or GOOGLE_APPLICATION_CREDENTIALS must be set');
         }
+      }
 
+      if (admin.apps.length > 0) {
         await admin.messaging().send({
           token: device_token,
           notification: { title, body },
@@ -170,9 +181,9 @@ const internalRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) => {
 
         sent = true;
         console.log(`[PUSH SENT] To: ${device_token.slice(0, 20)}...`);
-      } catch (err) {
-        console.error('Firebase push failed:', err);
       }
+    } catch (err) {
+      console.error('Firebase push failed:', err);
     }
 
     if (!sent) {

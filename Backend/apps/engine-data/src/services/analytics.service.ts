@@ -450,17 +450,21 @@ export async function getAnalyticsScore(
       select: { id: true },
     });
 
-    // Aggregate driver scores
+    // Aggregate driver scores in parallel (not sequential)
     let totalDriverScore = 0;
-    const driverScores = [];
-    for (const driver of drivers) {
-      try {
-        const score = await getAnalyticsScore('DRIVER', driver.id);
-        totalDriverScore += score.score;
-        driverScores.push(score);
-      } catch {
-        // Skip drivers that can't be scored
-      }
+    const driverScores = await Promise.all(
+      drivers.map(async (driver) => {
+        try {
+          return await getAnalyticsScore('DRIVER', driver.id);
+        } catch {
+          // Skip drivers that can't be scored
+          return null;
+        }
+      })
+    ).then(results => results.filter((score): score is NonNullable<typeof score> => score !== null));
+    
+    for (const score of driverScores) {
+      totalDriverScore += score.score;
     }
 
     const avgDriverScore = driverScores.length > 0 ? totalDriverScore / driverScores.length : 0;

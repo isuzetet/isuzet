@@ -189,7 +189,13 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     const utilizationData = await Promise.all(trucks.map(async (truck) => {
       const trips = await prisma.trip.findMany({
         where: { truckId: truck.id, createdAt: { gte: new Date(from), lte: new Date(to) } },
-        select: { actualPickupAt: true, actualDeliveryAt: true, totalIdleMinutes: true, loadId: true },
+        select: { 
+          actualPickupAt: true, 
+          actualDeliveryAt: true, 
+          totalIdleMinutes: true, 
+          loadId: true,
+          load: { select: { fleetPayoutEtb: true } }
+        },
       });
       let activeDays = 0;
       let totalRevenueEtb = 0;
@@ -198,9 +204,8 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
         if (trip.actualPickupAt && trip.actualDeliveryAt) {
           activeDays += (trip.actualDeliveryAt.getTime() - trip.actualPickupAt.getTime()) / (1000 * 60 * 60 * 24);
         }
-        // Sum revenue from associated loads
-        const load = await prisma.load.findUnique({ where: { id: trip.loadId }, select: { fleetPayoutEtb: true } });
-        if (load?.fleetPayoutEtb) { totalRevenueEtb += Number(load.fleetPayoutEtb); }
+        // Sum revenue from associated loads (already loaded via relation, no additional query)
+        if (trip.load?.fleetPayoutEtb) { totalRevenueEtb += Number(trip.load.fleetPayoutEtb); }
       }
       const totalDays = (new Date(to).getTime() - new Date(from).getTime()) / (1000 * 60 * 60 * 24);
       const idleDays = totalDays - activeDays;
@@ -313,8 +318,10 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
       to: z.string().datetime().optional(),
       truckId: z.string().optional(),
       expenseType: z.enum(["FUEL", "MAINTENANCE", "SALARY", "INSURANCE", "LOAN", "CHECKPOINT_FEE", "LOADING_FEE", "OTHER"]).optional(),
+      limit: z.coerce.number().int().min(1).max(500).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
     });
-    const { from, to, truckId, expenseType } = schema.parse(request.query);
+    const { from, to, truckId, expenseType, limit, offset } = schema.parse(request.query);
     const fleetOwnerId = request.user?.entity_id;
     if (!fleetOwnerId) {
       return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Fleet Owner ID not found' } });
@@ -324,9 +331,14 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
     if (to) where.recordedAt = { ...where.recordedAt, lte: new Date(to) };
     if (truckId) where.truckId = truckId;
     if (expenseType) where.expenseType = expenseType;
-    const expenses = await prisma.expense.findMany({ where });
+    
+    const [expenses, total] = await Promise.all([
+      prisma.expense.findMany({ where, take: limit, skip: offset, orderBy: { recordedAt: 'desc' } }),
+      prisma.expense.count({ where })
+    ]);
+    
     const totalEtb = expenses.reduce((sum, e) => sum + e.amountEtb, 0);
-    return reply.send({ success: true, data: { expenses, totalEtb } });
+    return reply.send({ success: true, data: { expenses, totalEtb, pagination: { limit, offset, total } } });
   });
 
   // POST /api/v1/data/truck/maintenance
@@ -362,14 +374,29 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
   app.get('/truck/maintenance/:truckId', {
     preHandler: requireRole([ROLES.FLEET_OWNER, ROLES.FLEET_MANAGER]),
   }, async (request: FastifyRequest & { user?: AccessTokenPayload }, reply: FastifyReply) => {
+    const schema = z.object({
+      limit: z.coerce.number().int().min(1).max(500).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    });
+    const { limit, offset } = schema.parse(request.query);
     const { truckId } = request.params as { truckId: string };
     const fleetOwnerId = request.user?.entity_id;
     const truck = await prisma.truck.findUnique({ where: { id: truckId, fleetOwnerId } });
     if (!truck) {
       return reply.status(404).send({ success: false, error: { code: 'ENTITY_NOT_FOUND', message: 'Truck not found or unauthorized' } });
     }
-    const history = await prisma.truckMaintenance.findMany({ where: { truckId }, orderBy: { scheduledDate: 'desc' } });
-    return reply.send({ success: true, data: history });
+    
+    const [history, total] = await Promise.all([
+      prisma.truckMaintenance.findMany({
+        where: { truckId },
+        orderBy: { scheduledDate: 'desc' },
+        take: limit,
+        skip: offset
+      }),
+      prisma.truckMaintenance.count({ where: { truckId } })
+    ]);
+    
+    return reply.send({ success: true, data: { history, pagination: { limit, offset, total } } });
   });
 
   // POST /api/v1/data/fleet/loan
@@ -400,12 +427,27 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
   app.get('/fleet/loans', {
     preHandler: requireRole([ROLES.FLEET_OWNER]),
   }, async (request: FastifyRequest & { user?: AccessTokenPayload }, reply: FastifyReply) => {
+    const schema = z.object({
+      limit: z.coerce.number().int().min(1).max(500).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    });
+    const { limit, offset } = schema.parse(request.query);
     const fleetOwnerId = request.user?.entity_id;
     if (!fleetOwnerId) {
       return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Fleet Owner ID not found' } });
     }
-    const loans = await prisma.fleetLoan.findMany({ where: { fleetOwnerId } });
-    return reply.send({ success: true, data: loans });
+    
+    const [loans, total] = await Promise.all([
+      prisma.fleetLoan.findMany({
+        where: { fleetOwnerId },
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.fleetLoan.count({ where: { fleetOwnerId } })
+    ]);
+    
+    return reply.send({ success: true, data: { loans, pagination: { limit, offset, total } } });
   });
 
   // GET /api/v1/data/driver/earnings-certificate
@@ -465,12 +507,27 @@ export async function dataRoutes(app: FastifyInstance): Promise<void> {
   app.get('/load/templates', {
     preHandler: requireRole([ROLES.ORDERER]),
   }, async (request: FastifyRequest & { user?: AccessTokenPayload }, reply: FastifyReply) => {
+    const schema = z.object({
+      limit: z.coerce.number().int().min(1).max(500).default(50),
+      offset: z.coerce.number().int().min(0).default(0),
+    });
+    const { limit, offset } = schema.parse(request.query);
     const ordererId = request.user?.entity_id;
     if (!ordererId) {
       return reply.status(401).send({ success: false, error: { code: 'UNAUTHORIZED', message: 'Orderer ID not found' } });
     }
-    const templates = await prisma.loadTemplate.findMany({ where: { ordererId, isActive: true } });
-    return reply.send({ success: true, data: templates });
+    
+    const [templates, total] = await Promise.all([
+      prisma.loadTemplate.findMany({
+        where: { ordererId, isActive: true },
+        take: limit,
+        skip: offset,
+        orderBy: { createdAt: 'desc' }
+      }),
+      prisma.loadTemplate.count({ where: { ordererId, isActive: true } })
+    ]);
+    
+    return reply.send({ success: true, data: { templates, pagination: { limit, offset, total } } });
   });
 
   // DELETE /api/v1/data/load/template/:templateId

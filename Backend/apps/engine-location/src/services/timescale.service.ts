@@ -1,8 +1,13 @@
 import { Pool } from 'pg';
 
+// Validate TIMESCALE_URL environment variable at startup
+if (!process.env.TIMESCALE_URL) {
+  throw new Error('TIMESCALE_URL environment variable is required for TimescaleDB connection');
+}
+
 // TimescaleDB connection — separate from main PostgreSQL
 const timescalePool = new Pool({
-  connectionString: process.env.TIMESCALE_URL || 'postgresql://ruit:ruit_dev_password@localhost:5433/ruit_ts',
+  connectionString: process.env.TIMESCALE_URL,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,

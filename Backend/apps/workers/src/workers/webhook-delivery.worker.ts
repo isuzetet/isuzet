@@ -30,7 +30,10 @@ export function createWebhookDeliveryWorker() {
     }
 
     try {
-      const secret = process.env.WEBHOOK_SECRET || "super-secret-webhook-key"; // Use a strong secret
+      if (!process.env.WEBHOOK_SECRET) {
+        throw new Error('WEBHOOK_SECRET environment variable is required for webhook signature verification');
+      }
+      const secret = process.env.WEBHOOK_SECRET;
       const hmac = createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
 
       const response = await fetch(webhookUrl, {

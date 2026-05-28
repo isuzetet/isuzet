@@ -4,6 +4,38 @@
 import { prisma } from '@ruit/shared-db';
 import { EVENT_TYPES } from '@ruit/shared-types';
 
+const NOTIFICATION_TIMEOUT_MS = 5000; // 5 second timeout
+
+/**
+ * Helper to notify notification engine with timeout and error handling
+ */
+async function notifyViaSms(phone: string, message: string): Promise<void> {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), NOTIFICATION_TIMEOUT_MS);
+
+    const response = await fetch('http://localhost:3013/internal/sms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        message,
+        template: null
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      console.error(`[EXPIRY] SMS notification failed: ${response.status} for phone ${phone}`);
+    }
+  } catch (error) {
+    console.error(`[EXPIRY] SMS notification error for ${phone}:`, error);
+    // Log error but don't crash - notifications are non-critical
+  }
+}
+
 /**
  * Check expiring documents and licenses
  * Run daily via BullMQ scheduled job
@@ -54,15 +86,10 @@ export async function checkExpiringDocuments(): Promise<void> {
       });
 
       if (owner?.user?.phone) {
-        await fetch('http://localhost:3013/internal/sms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: owner.user.phone,
-            message: `Reminder: Truck ${truck.plateNumber} has documents expiring soon. Please renew to avoid service disruption.`,
-            template: null
-          })
-        }).catch(() => {});
+        await notifyViaSms(
+          owner.user.phone,
+          `Reminder: Truck ${truck.plateNumber} has documents expiring soon. Please renew to avoid service disruption.`
+        );
       }
     }
   }
@@ -91,15 +118,10 @@ export async function checkExpiringDocuments(): Promise<void> {
 
     // Notify driver
     if (driver.user?.phone) {
-      await fetch('http://localhost:3013/internal/sms', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: driver.user.phone,
-          message: `Reminder: Your driver's license expires soon. Please renew to continue using Ruit services.`,
-          template: null
-        })
-      }).catch(() => {});
+      await notifyViaSms(
+        driver.user.phone,
+        `Reminder: Your driver's license expires soon. Please renew to continue using Ruit services.`
+      );
     }
 
     // Notify fleet owner
@@ -110,15 +132,10 @@ export async function checkExpiringDocuments(): Promise<void> {
       });
 
       if (owner?.user?.phone) {
-        await fetch('http://localhost:3013/internal/sms', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            phone: owner.user.phone,
-            message: `Reminder: Driver ${driver.user?.fullName} has a license expiring soon.`,
-            template: null
-          })
-        }).catch(() => {});
+        await notifyViaSms(
+          owner.user.phone,
+          `Reminder: Driver ${driver.user?.fullName} has a license expiring soon.`
+        );
       }
     }
   }

@@ -42,10 +42,18 @@ import { AccessTokenPayload } from '@ruit/shared-auth';
 function checkInternalSecret(request: FastifyRequest): boolean {
   const internalSecret = request.headers['x-internal-secret'] as string | undefined;
   const expectedSecret = process.env.INTERNAL_SECRET;
-  // Skip auth if INTERNAL_SECRET not set (dev mode)
+  
+  // In production, INTERNAL_SECRET is REQUIRED
   if (!expectedSecret) {
+    const isProduction = process.env.NODE_ENV === 'production';
+    if (isProduction) {
+      console.error('[SECURITY] INTERNAL_SECRET not set in production!');
+      return false;
+    }
+    // In development, allow without secret if env var not set
     return true;
   }
+  
   return internalSecret === expectedSecret;
 }
 
