@@ -1,3 +1,4 @@
+/// <reference lib="dom" />
 import { Redis } from 'ioredis';
 import { ulid } from 'ulid';
 
