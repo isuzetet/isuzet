@@ -68,7 +68,7 @@ if ($null -ne $redis) {
             if ($env:REDIS_URL -match 'redis://(?<host>[^:/]+):(?<port>\d+)') {
                 $host = $matches['host']; $port = $matches['port']
                 $ping = & redis-cli -h $host -p $port PING 2>$null
-                if ($ping -match 'PONG') { Log-Success "Redis reachable ($host:$port)"; $success++ } else { Log-Warning "redis-cli present but PING failed"; $warnings++ }
+                if ($ping -match 'PONG') { Log-Success ("Redis reachable (" + $host + ":" + $port + ")"); $success++ } else { Log-Warning "redis-cli present but PING failed"; $warnings++ }
             } else {
                 Log-Warning "REDIS_URL not in expected format, skipping detailed ping"
                 $warnings++
@@ -112,7 +112,7 @@ if (Test-Path ".git") {
     if ([string]::IsNullOrEmpty($porcelain)) { Log-Success "Working tree clean"; $success++ } else { Log-Warning "Working tree has changes"; $warnings++ }
     try {
         $local = & git rev-parse HEAD
-        $remote = & git rev-parse @{u} 2>$null
+        $remote = & git rev-parse '@{u}' 2>$null
         if ($local -eq $remote) { Log-Success "Local is synchronized with remote"; $success++ } else { Log-Warning "Local branch differs from remote"; $warnings++ }
     } catch { Log-Warning "Could not determine remote HEAD (no upstream configured)"; $warnings++ }
 } else { Log-Error "Not a git repository"; $errors++ }
