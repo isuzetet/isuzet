@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import { ulid } from 'ulid';
-import { cpuCount } from 'os';
+import * as os from 'os';
 
 const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefined; };
 
@@ -10,7 +10,7 @@ const globalForPrisma = globalThis as unknown as { prisma: PrismaClient | undefi
  * Min: 10, Max: 100
  */
 function getOptimalPoolSize(): number {
-  const cpuCount = require('os').cpus().length;
+  const cpuCount = os.cpus().length;
   const calculated = (cpuCount * 2) + 3;
   return Math.max(10, Math.min(100, calculated));
 }
