@@ -6,10 +6,10 @@ param()
 $now = Get-Date -Format "yyyyMMdd_HHmmss"
 $log = "infrastructure-validation-$now.log"
 
-function Log-Info($m) { "$((Get-Date).ToString()) [INFO] $m" | Tee-Object -FilePath $log -Append; Write-Host $m -ForegroundColor Cyan }
-function Log-Success($m) { "$((Get-Date).ToString()) [OK] $m" | Tee-Object -FilePath $log -Append; Write-Host "✔ $m" -ForegroundColor Green }
-function Log-Warning($m) { "$((Get-Date).ToString()) [WARN] $m" | Tee-Object -FilePath $log -Append; Write-Host "⚠ $m" -ForegroundColor Yellow }
-function Log-Error($m) { "$((Get-Date).ToString()) [ERR] $m" | Tee-Object -FilePath $log -Append; Write-Host "✖ $m" -ForegroundColor Red }
+function Log-Info($m) { "$((Get-Date).ToString()) [INFO] $m" | Tee-Object -FilePath $log -Append; Write-Host "INFO: $m" -ForegroundColor Cyan }
+function Log-Success($m) { "$((Get-Date).ToString()) [OK] $m" | Tee-Object -FilePath $log -Append; Write-Host "OK: $m" -ForegroundColor Green }
+function Log-Warning($m) { "$((Get-Date).ToString()) [WARN] $m" | Tee-Object -FilePath $log -Append; Write-Host "WARN: $m" -ForegroundColor Yellow }
+function Log-Error($m) { "$((Get-Date).ToString()) [ERR] $m" | Tee-Object -FilePath $log -Append; Write-Host "ERROR: $m" -ForegroundColor Red }
 
 $success=0; $warnings=0; $errors=0
 
@@ -30,8 +30,18 @@ $psql = Get-Command psql -ErrorAction SilentlyContinue
 if ($null -ne $psql) {
     try {
         if (-not [string]::IsNullOrEmpty($env:DATABASE_URL)) {
-            & psql $env:DATABASE_URL -c "SELECT 1;" > $null 2>&1; if ($LASTEXITCODE -eq 0) { Log-Success "PostgreSQL reachable"; $success++ } else { Log-Warning "psql present but could not connect to DATABASE_URL"; $warnings++ }
-        } else { Log-Warning "DATABASE_URL not set, skipping direct psql test"; $warnings++ }
+            $null = & psql $env:DATABASE_URL -c 'SELECT 1;' 2>$null
+            if ($LASTEXITCODE -eq 0) {
+                Log-Success "PostgreSQL reachable"
+                $success++
+            } else {
+                Log-Warning "psql present but could not connect to DATABASE_URL"
+                $warnings++
+            }
+        } else {
+            Log-Warning "DATABASE_URL not set, skipping direct psql test"
+            $warnings++
+        }
     } catch { Log-Warning "psql test failed: $_"; $warnings++ }
 } else { Log-Warning "psql not installed or not in PATH"; $warnings++ }
 
@@ -39,7 +49,13 @@ if ($null -ne $psql) {
 if (-not [string]::IsNullOrEmpty($env:TIMESCALE_URL) -and $psql) {
     try {
         $res = & psql $env:TIMESCALE_URL -Atc "SELECT extname FROM pg_extension WHERE extname='timescaledb';" 2>$null
-        if ($res -eq 'timescaledb') { Log-Success "TimescaleDB extension installed"; $success++ } else { Log-Warning "TimescaleDB extension not detected"; $warnings++ }
+        if ($res -eq 'timescaledb') {
+            Log-Success "TimescaleDB extension installed"
+            $success++
+        } else {
+            Log-Warning "TimescaleDB extension not detected"
+            $warnings++
+        }
     } catch { Log-Warning "TimescaleDB check failed: $_"; $warnings++ }
 }
 
@@ -49,8 +65,14 @@ $redis = Get-Command redis-cli -ErrorAction SilentlyContinue
 if ($null -ne $redis) {
     try {
         if (-not [string]::IsNullOrEmpty($env:REDIS_URL)) {
-            $ping = & redis-cli -u $env:REDIS_URL PING 2>$null
-            if ($ping -match "PONG") { Log-Success "Redis reachable"; $success++ } else { Log-Warning "redis-cli present but PING failed"; $warnings++ }
+            if ($env:REDIS_URL -match 'redis://(?<host>[^:/]+):(?<port>\d+)') {
+                $host = $matches['host']; $port = $matches['port']
+                $ping = & redis-cli -h $host -p $port PING 2>$null
+                if ($ping -match 'PONG') { Log-Success "Redis reachable ($host:$port)"; $success++ } else { Log-Warning "redis-cli present but PING failed"; $warnings++ }
+            } else {
+                Log-Warning "REDIS_URL not in expected format, skipping detailed ping"
+                $warnings++
+            }
         } else { Log-Warning "REDIS_URL not set, skipping redis-cli test"; $warnings++ }
     } catch { Log-Warning "redis-cli test failed: $_"; $warnings++ }
 } else { Log-Warning "redis-cli not installed or not in PATH"; $warnings++ }
