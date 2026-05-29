@@ -71,7 +71,7 @@ if (-not [string]::IsNullOrEmpty($env:REDIS_URL)) {
 
 # 5. Security quick-scan
 Log-Info "Scanning for obvious hardcoded secrets"
-$secrets = Select-String -Path Backend\**\*.ts,Backend\**\*.js -Pattern "password\s*[:=]\s*\"|password\s*[:=]\s*'" -ErrorAction SilentlyContinue
+$secrets = Select-String -Path 'Backend\**\*.ts','Backend\**\*.js' -Pattern 'password\s*[:=]' -ErrorAction SilentlyContinue
 if ($secrets) { Log-Error "Potential hardcoded credentials found"; $failed++ } else { Log-Success "No obvious hardcoded credentials detected"; $passed++ }
 
 # 6. Dependency audit
