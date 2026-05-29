@@ -1,4 +1,5 @@
 /// <reference lib="dom" />
+/* globals RequestInit */
 import { Redis } from 'ioredis';
 import { ulid } from 'ulid';
 
