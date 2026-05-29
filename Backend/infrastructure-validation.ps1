@@ -20,7 +20,8 @@ Log-Info "Log file: $log"
 Log-Info "Checking environment variables"
 $envVars = @('DATABASE_URL','TIMESCALE_URL','JWT_SECRET','WEBHOOK_SECRET','INTERNAL_SECRET','FIREBASE_SERVICE_ACCOUNT_PATH','AFRICAS_TALKING_API_KEY','REDIS_URL')
 foreach ($v in $envVars) {
-    if ([string]::IsNullOrEmpty($env:$v)) { Log-Warning "Missing env var: $v"; $warnings++ } else { Log-Success "Env var set: $v"; $success++ }
+    $val = [System.Environment]::GetEnvironmentVariable($v)
+    if ([string]::IsNullOrEmpty($val)) { Log-Warning "Missing env var: $v"; $warnings++ } else { Log-Success "Env var set: $v"; $success++ }
 }
 
 # 2. PostgreSQL (psql)
